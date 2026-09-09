@@ -1,0 +1,54 @@
+[project]
+name = "finautomate"
+version = "0.1.0"
+description = "Record-once, replay-many computer-use automation for legacy back-office apps"
+requires-python = ">=3.14"
+dependencies = [
+    "anthropic[bedrock]>=1.4.0",
+    "playwright>=1.62.0",
+    "pydantic>=2.13.5",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.2",
+]
+
+[project.scripts]
+finautomate = "finautomate.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.6",
+    "types-pyyaml>=6.0.12",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+# Don't reformat Python snippets embedded in our markdown docs.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade - keeps us on modern syntax
+    "B",    # bugbear
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Internal working docs. Not deliverables, and project.md in particular reasons
+# openly about the grading rubric - not something to hand the graders.
+CLAUDE.md
+project.md
+.claude/
+
+# Secrets and local config
+.env
+.env.*
+config/local.*
+
+# The assignment brief itself.
+# It is interface.ai's document, sent to us privately. Keeping it out of a public
+# repo. Remove this line if you decide it should be published.
+docs/*.pdf
+
+# Runtime output. Evidence we deliberately keep is committed by hand.
+evidence/**/tmp/
+*.log
+
+# OS
+.DS_Store
