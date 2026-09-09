@@ -1,0 +1,219 @@
+# Hand-authored reference capability.
+#
+# This file exists to prove the schema works and to be read by a human. Phase 3
+# replaces it with one produced by a real discovery run, which will also carry a
+# `recorded:` block linking to its evidence.
+#
+# Every locator below was verified against a running ParaBank in Phase 0.
+
+schema_version: 1
+
+id: open_new_account
+version: 1
+title: Open a new bank account
+description: >
+  Opens a checking or savings account for the signed-in customer, funded by a
+  transfer from one of their existing accounts. Returns the new account number.
+
+target:
+  app: parabank              # the vendor product, not the institution
+  surface: browser           # the seam: browser | windows_uia | macos_ax
+  entry: /parabank/index.htm # relative on purpose; base URL comes from tenant config
+
+inputs:
+  - name: username
+    type: string
+    description: Operator or service account used to sign in.
+  - name: password
+    type: string
+    secret: true
+    description: Never written to this file, to a log, or to evidence.
+  - name: account_type
+    type: enum
+    values: [CHECKING, SAVINGS]
+    description: Which product to open.
+  - name: funding_account_id
+    type: string
+    description: Existing account the opening deposit is transferred from.
+
+outputs:
+  - name: new_account_id
+    type: string
+    from_step: read_new_account_id
+    description: Account number of the newly opened account.
+
+steps:
+  - id: fill_username
+    action: type
+    value: "{{username}}"
+    risk: safe
+    target:
+      description: the Username field
+      strategies:
+        # No strategy by accessible name: ParaBank puts "Username" in a <b> tag
+        # with no <label>, so the browser computes an empty name for this field.
+        - kind: anchored_role
+          role: textbox
+          anchor: Username
+          position: after
+        - kind: field_name
+          name: username
+
+  - id: fill_password
+    action: type
+    value: "{{password}}"
+    risk: safe
+    target:
+      description: the Password field
+      strategies:
+        - kind: anchored_role
+          role: textbox
+          anchor: Password
+          position: after
+        - kind: field_name
+          name: password
+
+  - id: submit_login
+    action: click
+    risk: safe
+    target:
+      description: the Log In button
+      strategies:
+        - kind: role_name
+          role: button
+          name: Log In
+    expect:
+      kind: element_visible
+      target:
+        description: the signed-in left menu
+        strategies:
+          - kind: role_name
+            role: link
+            name: Open New Account
+
+  - id: goto_open_account
+    action: click
+    risk: safe
+    target:
+      description: the Open New Account link in the left menu
+      strategies:
+        # Role matters here, not just the name: "Open New Account" is also the
+        # name of the submit button further down the same page.
+        - kind: role_name
+          role: link
+          name: Open New Account
+    expect:
+      kind: text_visible
+      text: What type of Account
+      match: prefix
+
+  - id: select_account_type
+    action: select
+    by: label
+    value: "{{account_type}}"
+    risk: safe
+    target:
+      description: the account type dropdown
+      strategies:
+        - kind: anchored_role
+          role: combobox
+          anchor: What type of Account would you like to open
+          match: prefix
+          position: after
+        - kind: field_id
+          id: type
+
+  - id: select_funding_account
+    action: select
+    by: label
+    value: "{{funding_account_id}}"
+    risk: safe
+    outcomes:
+      option_not_found: FUNDING_ACCOUNT_NOT_FOUND
+    target:
+      description: the funding account dropdown
+      strategies:
+        # Prefix match, not exact: the full sentence is "A minimum of $100.00 must
+        # be deposited...", and that figure is a configurable setting. An exact
+        # match would break the moment an institution changed it.
+        - kind: anchored_role
+          role: combobox
+          anchor: A minimum of
+          match: prefix
+          position: after
+        - kind: field_id
+          id: fromAccountId
+
+  - id: submit_open_account
+    action: click
+    risk: risky        # creates a real account. There is no undo in the UI.
+    target:
+      description: the Open New Account submit button
+      strategies:
+        - kind: role_name
+          role: button
+          name: Open New Account
+    # Required, not optional. The app answers this click by swapping one panel for
+    # another at the same URL, and the swap lands after the network has already
+    # gone quiet. Without this wait the next step reads the form that is still on
+    # screen and reports the account number missing.
+    expect:
+      kind: text_visible
+      text: Account Opened
+      match: prefix
+      timeout_ms: 15000
+
+  - id: read_new_account_id
+    action: read
+    risk: safe
+    target:
+      description: the new account number on the confirmation panel
+      strategies:
+        - kind: anchored_role
+          role: link
+          anchor: Your new account number
+          match: prefix
+          position: after
+        - kind: field_id
+          id: newAccountId
+
+success:
+  kind: text_visible
+  text: Account Opened
+  match: prefix
+  timeout_ms: 15000
+
+outcomes:
+  - name: FUNDING_ACCOUNT_NOT_FOUND
+    classification: business_outcome
+    message: That funding account is not available to this customer.
+    # No detector: the select step raises this directly when the dropdown is
+    # present but holds no matching option. A missing dropdown is a different
+    # thing entirely and stays a hard failure.
+
+  - name: SESSION_EXPIRED
+    classification: recoverable
+    # When the session dies, ParaBank serves the login page at whatever URL was
+    # requested. The address bar still looks right, so the only reliable signal is
+    # that a login field is on screen when it should not be.
+    detect:
+      kind: element_visible
+      target:
+        description: the login form appearing mid-flow
+        strategies:
+          - kind: anchored_role
+            role: textbox
+            anchor: Username
+            position: after
+      timeout_ms: 1000
+    recovery:
+      action: restart_from
+      step: fill_username
+      max_attempts: 1
+
+  - name: APP_ERROR
+    classification: hard_failure
+    detect:
+      kind: text_visible
+      text: An internal error has occurred
+      timeout_ms: 1000
