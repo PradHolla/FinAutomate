@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Login-like fixture</title>
+</head>
+<body>
+  <nav>
+    <a href="openaccount.htm">Open New Account</a>
+  </nav>
+
+  <form>
+    <p><b>Username</b></p>
+    <div class="login"><input type="text" name="username" /></div>
+
+    <p><b>Password</b></p>
+    <div class="login"><input type="password" name="password" /></div>
+
+    <input type="submit" class="button" value="Log In" />
+
+    <p><b>What type of Account would you like to open?</b></p>
+    <select id="type" class="input">
+      <option value="0">CHECKING</option>
+      <option value="1">SAVINGS</option>
+    </select>
+
+    <input type="submit" class="button" value="Open New Account" />
+
+    <input type="hidden" name="csrf" value="deadbeef" />
+    <div style="display:none">This is not shown</div>
+  </form>
+</body>
+</html>
