@@ -29,13 +29,15 @@ docker run -d -p 8080:8080 --name parabank parasoft/parabank
 
 ## Configuration
 
-Model access is Claude Sonnet 5 on Amazon Bedrock. Credentials come from the
-standard AWS chain, so any of the usual options work:
+Discovery uses Claude Sonnet 5 through the Anthropic API. One environment variable:
 
 ```bash
-export AWS_REGION=us-east-1
-# plus AWS_PROFILE, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+**Replay needs no key at all.** That is the point of the system: the model is used
+once to work out how to do a job, and never again to do it. If you only want to see
+a capability run, skip this section entirely.
 
 No secrets are read from or written to this repository.
 

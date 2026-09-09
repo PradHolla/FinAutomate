@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Record-once, replay-many computer-use automation for legacy back-office apps"
 requires-python = ">=3.14"
 dependencies = [
-    "anthropic[bedrock]>=1.4.0",
+    "anthropic>=1.4.0",
     "playwright>=1.62.0",
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",
