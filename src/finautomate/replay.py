@@ -25,6 +25,7 @@ from pydantic import SecretStr
 from finautomate.artifact import Capability, Recovery, Step
 from finautomate.checkpoint import satisfied, wait_for
 from finautomate.evidence import Evidence
+from finautomate.handover import start_watching
 from finautomate.locate import explain, resolve
 from finautomate.result import (
     BusinessOutcome,
@@ -34,6 +35,7 @@ from finautomate.result import (
     StepRecord,
     Success,
 )
+from finautomate.session import Intervention, InterventionStore
 from finautomate.surface.browser import BrowserSurface, ControlNotFoundError, OptionNotFoundError
 from finautomate.surface.models import Snapshot
 
@@ -94,14 +96,19 @@ class Replay:
         evidence: Evidence,
         *,
         attended: bool = False,
+        interventions: InterventionStore | None = None,
+        wait_seconds: int = 0,
     ) -> None:
         self.cap = capability
         self.surface = surface
         self.evidence = evidence
         self.attended = attended
+        self.interventions = interventions
+        self.wait_seconds = wait_seconds
         self.records: list[StepRecord] = []
         self.outputs: dict[str, str] = {}
         self.recoveries: dict[str, int] = {}
+        self._skip_next = False
 
     # -- the run ------------------------------------------------------------
 
@@ -167,13 +174,17 @@ class Replay:
                 f"It would have: {step.target.description if step.target else step.action}."
             )
             self.evidence.event("risky_step_held", step=step.id, reason=reason)
-            return NeedsHuman(
-                capability=self.cap.id,
-                version=self.cap.version,
-                steps=self.records,
-                step=step.id,
-                reason=reason,
-            )
+            held = self._escalate(step, reason, kind="risky_step")
+            if held is not None:
+                return held
+            # A person approved it, or did it themselves. Either way the lease is
+            # back with us, so fall through and carry on.
+            if self._skip_next:
+                self._skip_next = False
+                self.records.append(
+                    StepRecord(id=step.id, action=step.action, recovered_from="performed by human")
+                )
+                return None
 
         if step.action == "navigate":
             self.surface.navigate(self.cap.target.entry)
@@ -249,6 +260,90 @@ class Replay:
             for output in self.cap.outputs:
                 if output.from_step == step.id:
                     self.outputs[output.name] = value
+
+    # -- handing over to a person -------------------------------------------
+
+    def _escalate(self, step: Step, reason: str, *, kind: str) -> Result | None:
+        """Raise an intervention. Returns a Result to stop, or None to carry on.
+
+        With no store configured, or no time to wait, this is what the engine did
+        before: report that a person is needed and exit. Given both, it becomes a
+        real handover - the browser stays open on the same page, the lease passes to
+        a person, what they do is recorded, and control comes back.
+        """
+        request = Intervention(
+            id=self.evidence.run_id,
+            run=self.evidence.run_id,
+            capability=self.cap.id,
+            step=step.id,
+            reason=reason,
+            kind=kind,  # type: ignore[arg-type]
+            screenshot=str(self.evidence.screenshot(self.surface.page, f"held-{step.id}")),
+            screen=[f"{c.ref} {c.role} {c.name!r}" for c in self.surface.observe().controls[:40]],
+        )
+        stopped = NeedsHuman(
+            capability=self.cap.id,
+            version=self.cap.version,
+            steps=self.records,
+            step=step.id,
+            reason=reason,
+        )
+        if self.interventions is None or self.wait_seconds <= 0:
+            return stopped
+
+        path = self.interventions.write(request)
+        self.evidence.event(
+            "handed_to_human", intervention=request.id, step=step.id, file=str(path)
+        )
+
+        # The lease is now held by a person and the automation does nothing but
+        # watch. It is watching in both senses: waiting for the decision, and
+        # recording what they do so the run has no gap in its audit trail.
+        seen: list[dict[str, Any]] = []
+        start_watching(self.surface.page, seen)
+        decided = self._await_decision(request.id)
+
+        if seen:
+            self.interventions.record_actions(request.id, seen)
+            for action in seen:
+                self.evidence.event("human_action", **action)
+
+        if decided is None:
+            self.evidence.event("handover_timed_out", intervention=request.id)
+            return stopped.model_copy(
+                update={
+                    "reason": f"{reason} No operator responded within {self.wait_seconds}s.",
+                    "intervention": str(path),
+                }
+            )
+
+        self.evidence.event(
+            "control_returned",
+            intervention=request.id,
+            decision=decided.status,
+            operator=decided.operator,
+            human_actions=len(decided.human_actions),
+        )
+        if decided.status == "rejected":
+            declined = decided.note or "no reason given"
+            return stopped.model_copy(
+                update={
+                    "reason": f"An operator declined this step: {declined}",
+                    "intervention": str(path),
+                }
+            )
+        self._skip_next = decided.status == "handled"
+        return None
+
+    def _await_decision(self, intervention_id: str) -> Intervention | None:
+        assert self.interventions is not None
+        deadline = time.monotonic() + self.wait_seconds
+        while time.monotonic() < deadline:
+            current = self.interventions.read(intervention_id)
+            if not current.open:
+                return current
+            time.sleep(1.0)
+        return None
 
     # -- recovery -----------------------------------------------------------
 

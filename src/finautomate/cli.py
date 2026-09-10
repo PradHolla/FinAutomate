@@ -20,10 +20,12 @@ from finautomate.artifact import (
 from finautomate.checkpoint import wait_for
 from finautomate.discover import DEFAULT_MODEL, MODELS, Discovery
 from finautomate.evidence import Evidence
-from finautomate.locate import explain, resolve
+from finautomate.locate import explain
+from finautomate.locate import resolve as resolve_locator
 from finautomate.policy import Guards, Policy
 from finautomate.replay import ParameterError, Replay, dry_run
 from finautomate.result import EXIT_CODES
+from finautomate.session import InterventionStore, Status
 from finautomate.surface.browser import BrowserSurface
 
 app = typer.Typer(
@@ -136,7 +138,7 @@ def reset(
                 description=f"the {label} button",
                 strategies=[RoleName(kind="role_name", role="button", name=label)],
             )
-            found = resolve(target, surface.observe())
+            found = resolve_locator(target, surface.observe())
             if found.control is None:
                 typer.secho(explain(target, found), fg=typer.colors.RED)
                 raise typer.Exit(1)
@@ -181,6 +183,13 @@ def replay(
     attended: Annotated[
         bool, typer.Option(help="A person is watching, so risky steps may run.")
     ] = False,
+    wait_for_human: Annotated[
+        int,
+        typer.Option(
+            help="Seconds to hold the session open for an operator at a risky step. "
+            "0 means raise the request and exit.",
+        ),
+    ] = 0,
     dry: Annotated[bool, typer.Option("--dry-run", help="Print the plan, touch nothing.")] = False,
     headed: Annotated[bool, typer.Option(help="Show the browser.")] = False,
 ) -> None:
@@ -216,6 +225,8 @@ def replay(
                 BrowserSurface(browser.new_page(), settings["base_url"]),
                 evidence,
                 attended=attended,
+                interventions=InterventionStore() if wait_for_human else None,
+                wait_seconds=wait_for_human,
             )
             result = engine.run(supplied)
         except ParameterError as err:
@@ -226,6 +237,65 @@ def replay(
 
     _report(result)
     raise typer.Exit(EXIT_CODES[result.kind])
+
+
+@app.command()
+def interventions() -> None:
+    """Show requests waiting for a person."""
+    pending = InterventionStore().pending()
+    if not pending:
+        typer.echo("nothing waiting")
+        return
+    for request in pending:
+        typer.secho(f"\n{request.id}", bold=True)
+        typer.echo(f"  capability : {request.capability}")
+        typer.echo(f"  held at    : {request.step}")
+        typer.echo(f"  why        : {request.reason}")
+        typer.echo(f"  screenshot : {request.screenshot}")
+        typer.echo(f"  controller : {request.controller}")
+    typer.echo("\nresolve with: finautomate resolve <id> --approve | --handled | --reject")
+
+
+@app.command()
+def resolve(
+    intervention_id: Annotated[str, typer.Argument(help="Which request.")],
+    approve: Annotated[
+        bool, typer.Option("--approve", help="Let the automation perform the step.")
+    ] = False,
+    handled: Annotated[
+        bool, typer.Option("--handled", help="You did it yourself; skip the step and continue.")
+    ] = False,
+    reject: Annotated[bool, typer.Option("--reject", help="Do not proceed.")] = False,
+    operator: Annotated[str, typer.Option(help="Who decided.")] = "operator",
+    note: Annotated[str, typer.Option(help="Why.")] = "",
+) -> None:
+    """Hand control back to the automation with a decision.
+
+    `--approve` and `--handled` are deliberately different. One is the machine
+    acting with permission; the other is a person acting instead of the machine.
+    An audit of a bank's systems cares which.
+    """
+    picked: list[tuple[Status, bool]] = [
+        ("approved", approve),
+        ("handled", handled),
+        ("rejected", reject),
+    ]
+    chosen = [name for name, on in picked if on]
+    if len(chosen) != 1:
+        raise typer.BadParameter("choose exactly one of --approve, --handled, --reject")
+    try:
+        updated = InterventionStore().resolve(
+            intervention_id,
+            chosen[0],
+            operator=operator,
+            note=note or None,
+        )
+    except (FileNotFoundError, ValueError) as err:
+        typer.secho(str(err), fg=typer.colors.RED)
+        raise typer.Exit(1) from err
+    typer.secho(
+        f"{updated.id}: {updated.status}, control returned to the agent", fg=typer.colors.GREEN
+    )
 
 
 def _report(result: Any) -> None:

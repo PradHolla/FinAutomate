@@ -32,3 +32,7 @@ evidence/**/tmp/
 
 # OS
 .DS_Store
+
+# Operator inbox. Runtime state, not a deliverable - one curated example is
+# committed under evidence/ instead.
+interventions/
