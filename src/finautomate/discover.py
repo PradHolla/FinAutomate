@@ -41,6 +41,9 @@ from finautomate.artifact import (
     Target,
     TextVisible,
 )
+from finautomate.artifact import (
+    Outcome as DeclaredOutcome,
+)
 from finautomate.evidence import Evidence
 from finautomate.policy import Guards, Policy
 from finautomate.record import build_bundle
@@ -599,14 +602,24 @@ class Discovery:
         if block.name == "select":
             label = str(args.get("label", ""))
             self.surface.select(ref, label)
+            reference = self._as_reference(label)
+            # "The option is not in the list" is the application telling the caller
+            # that choice is not available to this customer - the same shape as "no
+            # such member". It is a property of choosing from a list, not of this
+            # app, so the recorder declares it rather than waiting for a model to
+            # think of it. Without this the condition reaches the caller as a hard
+            # failure, which reads as "we are broken" instead of "the answer is no".
+            named = re.findall(r"\{\{(\w+)\}\}", reference)
+            outcomes = {"option_not_found": f"{named[0].upper()}_NOT_AVAILABLE"} if named else {}
             self._add_step(
                 Step(
                     id=step_id,
                     action="select",
                     target=bundle,
-                    value=self._as_reference(label),
+                    value=reference,
                     by="label",
                     risk=risk,
+                    outcomes=outcomes,
                 )
             )
             return f"selected {label!r}"
@@ -656,6 +669,21 @@ class Discovery:
         trimmed = text[:cut].strip(" .,:;-!")
         return trimmed or text
 
+    def _declared_outcomes(self) -> list[DeclaredOutcome]:
+        """Business outcomes the recorded steps can raise."""
+        seen: dict[str, DeclaredOutcome] = {}
+        for step in self.steps:
+            for name in step.outcomes.values():
+                seen.setdefault(
+                    name,
+                    DeclaredOutcome(
+                        name=name,
+                        classification="business_outcome",
+                        message=("The application did not offer that choice for this customer."),
+                    ),
+                )
+        return list(seen.values())
+
     def _capability(self, goal: str, entry: str, app: str) -> Capability:
         used = {p for s in self.steps for p in re.findall(r"\{\{(\w+)\}\}", s.value or "")}
         inputs = [
@@ -675,6 +703,7 @@ class Discovery:
             inputs=inputs,
             outputs=self.outputs,
             steps=self.steps,
+            outcomes=self._declared_outcomes(),
             success=TextVisible(kind="text_visible", text=self.success_text, match="contains"),
             recorded=Recorded(
                 at=datetime.now(UTC),

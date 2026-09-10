@@ -2,19 +2,27 @@
 
 import uuid
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 import yaml
 from anthropic import Anthropic
 from playwright.sync_api import sync_playwright
 
-from finautomate.artifact import LocatorBundle, RoleName, TextVisible, dump_capability
+from finautomate.artifact import (
+    LocatorBundle,
+    RoleName,
+    TextVisible,
+    dump_capability,
+    load_capability,
+)
 from finautomate.checkpoint import wait_for
 from finautomate.discover import Discovery
 from finautomate.evidence import Evidence
 from finautomate.locate import explain, resolve
 from finautomate.policy import Guards, Policy
+from finautomate.replay import ParameterError, Replay, dry_run
+from finautomate.result import EXIT_CODES
 from finautomate.surface.browser import BrowserSurface
 
 app = typer.Typer(
@@ -143,9 +151,89 @@ def reset(
 
 
 @app.command()
-def replay() -> None:
+def replay(
+    artifact: Annotated[Path, typer.Argument(help="The capability to run.")],
+    param: Annotated[list[str], typer.Option(help="name=value, repeatable.")] = [],  # noqa: B006
+    secret: Annotated[
+        list[str], typer.Option(help="name=value for a secret input. Repeatable.")
+    ] = [],  # noqa: B006
+    config: Annotated[Path, typer.Option()] = Path("config/parabank.yaml"),
+    attended: Annotated[
+        bool, typer.Option(help="A person is watching, so risky steps may run.")
+    ] = False,
+    dry: Annotated[bool, typer.Option("--dry-run", help="Print the plan, touch nothing.")] = False,
+    headed: Annotated[bool, typer.Option(help="Show the browser.")] = False,
+) -> None:
     """Replay a saved capability with no LLM in the decision loop."""
-    raise NotImplementedError("Phase 4")
+    capability = load_capability(artifact)
+    supplied = {**_pairs(param, "--param"), **_pairs(secret, "--secret")}
+
+    if dry:
+        try:
+            for line in dry_run(capability, supplied):
+                typer.echo(line)
+        except ParameterError as err:
+            typer.secho(str(err), fg=typer.colors.RED)
+            raise typer.Exit(1) from err
+        return
+
+    settings = yaml.safe_load(config.read_text(encoding="utf-8"))
+    run_id = f"replay-{uuid.uuid4().hex[:10]}"
+    evidence = Evidence(Path("evidence"), run_id, frozenset(_pairs(secret, "--secret").values()))
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=not headed)
+        try:
+            engine = Replay(
+                capability,
+                BrowserSurface(browser.new_page(), settings["base_url"]),
+                evidence,
+                attended=attended,
+            )
+            result = engine.run(supplied)
+        except ParameterError as err:
+            typer.secho(str(err), fg=typer.colors.RED)
+            raise typer.Exit(1) from err
+        finally:
+            browser.close()
+
+    _report(result)
+    raise typer.Exit(EXIT_CODES[result.kind])
+
+
+def _report(result: Any) -> None:
+    colors = {
+        "success": typer.colors.GREEN,
+        "business_outcome": typer.colors.YELLOW,
+        "needs_human": typer.colors.YELLOW,
+        "hard_failure": typer.colors.RED,
+    }
+    for record in result.steps:
+        flag = "  <- fallback" if record.used_fallback else ""
+        tier = f"[{record.strategy_index}] {record.strategy_kind}"
+        typer.echo(f"  {record.id:<32} {record.action:<8} {tier}{flag}")
+
+    typer.secho(
+        f"\n{result.kind.upper()} in {result.duration_ms}ms", fg=colors[result.kind], bold=True
+    )
+    if result.kind == "success":
+        for name, value in result.outputs.items():
+            typer.echo(f"  {name} = {value!r}")
+    elif result.kind == "business_outcome":
+        typer.echo(f"  {result.outcome}: {result.message}")
+    elif result.kind == "needs_human":
+        typer.echo(f"  held at {result.step}")
+        typer.echo(f"  {result.reason}")
+    elif result.kind == "hard_failure":
+        typer.echo(f"  step     : {result.step}")
+        typer.echo(f"  expected : {result.expected}")
+        typer.echo(f"  observed : {result.observed}")
+        typer.echo(f"  screenshot: {result.screenshot}")
+    if drifting := result.drifting_steps:
+        typer.secho(
+            f"  drift warning: {drifting} needed a fallback locator", fg=typer.colors.YELLOW
+        )
+    typer.echo(f"  evidence : {result.evidence}")
 
 
 if __name__ == "__main__":

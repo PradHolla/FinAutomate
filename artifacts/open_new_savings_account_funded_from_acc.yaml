@@ -186,7 +186,8 @@ steps:
   value: '{{account_type}}'
   by: label
   risk: safe
-  outcomes: {}
+  outcomes:
+    option_not_found: ACCOUNT_TYPE_NOT_AVAILABLE
 - id: select_funding_account
   action: select
   target:
@@ -208,7 +209,8 @@ steps:
   value: '{{funding_account_id}}'
   by: label
   risk: safe
-  outcomes: {}
+  outcomes:
+    option_not_found: FUNDING_ACCOUNT_ID_NOT_AVAILABLE
 - id: click_open_new_account_submit
   action: click
   target:
@@ -287,10 +289,16 @@ success:
   text: Account Opened
   match: contains
   timeout_ms: 10000
-outcomes: []
+outcomes:
+- name: ACCOUNT_TYPE_NOT_AVAILABLE
+  classification: business_outcome
+  message: The application did not offer that choice for this customer.
+- name: FUNDING_ACCOUNT_ID_NOT_AVAILABLE
+  classification: business_outcome
+  message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-10T02:31:24.860820Z'
-  run: discovery-ec5b9b609b
+  at: '2026-09-10T03:21:12.970164Z'
+  run: discovery-fd4beb1676
   model: claude-sonnet-5
   goal: Open a new SAVINGS account funded from account 12345, and return the new account number
-  evidence: evidence/discovery-ec5b9b609b
+  evidence: evidence/discovery-fd4beb1676

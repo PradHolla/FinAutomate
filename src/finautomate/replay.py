@@ -1,0 +1,343 @@
+"""Running a recorded capability. No model, ever.
+
+This is the production path: the thing an AI agent triggers when it wants a job
+done. It reads the artifact, resolves each control the recorded way, and reports one
+of four outcomes.
+
+Two rules the engine holds to:
+
+**Nothing is retried unless the artifact said it could be.** Recovery is declared
+per capability, with a bounded attempt count. Generic retry-on-anything is how
+automation quietly hammers a production system while looking like it is working.
+
+**A risky step stops an unattended run.** The artifact marks the one action that
+creates something real; running it without a person is not a decision this engine
+gets to make.
+"""
+
+import re
+import time
+from typing import Any
+
+from playwright.sync_api import Error as PlaywrightError
+from pydantic import SecretStr
+
+from finautomate.artifact import Capability, Recovery, Step
+from finautomate.checkpoint import satisfied, wait_for
+from finautomate.evidence import Evidence
+from finautomate.locate import explain, resolve
+from finautomate.result import (
+    BusinessOutcome,
+    HardFailure,
+    NeedsHuman,
+    Result,
+    StepRecord,
+    Success,
+)
+from finautomate.surface.browser import BrowserSurface, ControlNotFoundError, OptionNotFoundError
+from finautomate.surface.models import Snapshot
+
+PARAM = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+class ParameterError(ValueError):
+    """The supplied arguments do not satisfy the capability's declared inputs.
+
+    Raised before a browser is opened. Half-running a flow because an argument was
+    missing leaves the application in a state nobody chose.
+    """
+
+
+def bind(capability: Capability, supplied: dict[str, str]) -> dict[str, str | SecretStr]:
+    """Check arguments against the declared inputs and wrap the secret ones."""
+    declared = {i.name: i for i in capability.inputs}
+    if unknown := sorted(set(supplied) - set(declared)):
+        raise ParameterError(f"{capability.id} takes no parameter named {unknown}")
+
+    bound: dict[str, str | SecretStr] = {}
+    missing: list[str] = []
+    for name, spec in declared.items():
+        if name not in supplied:
+            if spec.required:
+                missing.append(name)
+            continue
+        value = supplied[name]
+        if spec.type == "enum" and spec.values and value not in spec.values:
+            raise ParameterError(f"{name}={value!r} is not one of {spec.values}")
+        bound[name] = SecretStr(value) if spec.secret else value
+    if missing:
+        raise ParameterError(f"{capability.id} requires {missing}")
+    return bound
+
+
+def render(template: str, bound: dict[str, str | SecretStr]) -> str:
+    """Substitute `{{name}}`. Secrets are unwrapped here and nowhere else.
+
+    The returned string may hold a password, so it goes straight to the browser. It
+    is never logged: `Evidence` is constructed with the secret values and redacts
+    them from anything written, so a mistake here is caught downstream rather than
+    relied upon not to happen.
+    """
+
+    def swap(match: re.Match[str]) -> str:
+        value = bound.get(match.group(1), match.group(0))
+        return value.get_secret_value() if isinstance(value, SecretStr) else value
+
+    return PARAM.sub(swap, template)
+
+
+class Replay:
+    def __init__(
+        self,
+        capability: Capability,
+        surface: BrowserSurface,
+        evidence: Evidence,
+        *,
+        attended: bool = False,
+    ) -> None:
+        self.cap = capability
+        self.surface = surface
+        self.evidence = evidence
+        self.attended = attended
+        self.records: list[StepRecord] = []
+        self.outputs: dict[str, str] = {}
+        self.recoveries: dict[str, int] = {}
+
+    # -- the run ------------------------------------------------------------
+
+    def run(self, supplied: dict[str, str]) -> Result:
+        bound = bind(self.cap, supplied)
+        started = time.monotonic()
+        self.evidence.event(
+            "replay_started",
+            capability=self.cap.id,
+            version=self.cap.version,
+            attended=self.attended,
+            parameters=sorted(bound),
+        )
+        try:
+            self.surface.navigate(self.cap.target.entry)
+
+            index = 0
+            while index < len(self.cap.steps):
+                step = self.cap.steps[index]
+                outcome = self._step(step, bound)
+                if isinstance(outcome, Recovery):
+                    index = self._index_of(outcome.step)
+                    continue
+                if outcome is not None:
+                    return self._finish(outcome, started)
+                index += 1
+        except PlaywrightError as err:
+            # The application is unreachable, or the browser gave up. A caller gets
+            # a hard failure naming the step, not a traceback from three layers down.
+            step_id = self.records[-1].id if self.records else "navigate"
+            return self._finish(
+                self._fail(
+                    step_id,
+                    expected="the application to respond",
+                    observed=str(err).strip().splitlines()[0],
+                ),
+                started,
+            )
+
+        if wait_for(self.surface, self.cap.success) is None:
+            return self._finish(
+                self._fail(
+                    "success",
+                    expected=f"the success condition: {self._describe(self.cap.success)}",
+                    observed="it never held before the timeout",
+                ),
+                started,
+            )
+        return self._finish(
+            Success(capability=self.cap.id, version=self.cap.version, outputs=self.outputs),
+            started,
+        )
+
+    # -- one step -----------------------------------------------------------
+
+    def _step(self, step: Step, bound: dict[str, str | SecretStr]) -> Result | Recovery | None:
+        """None to carry on, a Recovery to jump, or a Result to stop."""
+        began = time.monotonic()
+
+        if step.risk == "risky" and not self.attended:
+            reason = (
+                f"{step.id} is marked irreversible and this run is unattended. "
+                f"It would have: {step.target.description if step.target else step.action}."
+            )
+            self.evidence.event("risky_step_held", step=step.id, reason=reason)
+            return NeedsHuman(
+                capability=self.cap.id,
+                version=self.cap.version,
+                steps=self.records,
+                step=step.id,
+                reason=reason,
+            )
+
+        if step.action == "navigate":
+            self.surface.navigate(self.cap.target.entry)
+            return None
+
+        assert step.target is not None  # the schema guarantees this for these actions
+        snapshot = self.surface.observe()
+        found = resolve(step.target, snapshot)
+
+        if found.control is None:
+            if (jump := self._try_recover(step, snapshot)) is not None:
+                return jump
+            return self._fail(
+                step.id,
+                expected=step.target.description,
+                observed=explain(step.target, found),
+            )
+
+        try:
+            self._act(step, found.control.ref, bound)
+        except OptionNotFoundError as err:
+            # The control was found; the application simply is not offering this
+            # choice. That distinction is the whole point - a missing dropdown is a
+            # broken page, a missing option is the application answering.
+            if name := step.outcomes.get("option_not_found"):
+                return self._business(name, step.id)
+            return self._fail(
+                step.id,
+                expected=f"an option {err.label!r}",
+                observed=f"available options were {err.available_labels[:12]}",
+            )
+        except ControlNotFoundError:
+            return self._fail(
+                step.id, expected=step.target.description, observed="it vanished before the action"
+            )
+
+        self.records.append(
+            StepRecord(
+                id=step.id,
+                action=step.action,
+                strategy_index=found.strategy_index,
+                strategy_kind=found.strategy_kind,
+                used_fallback=found.used_fallback,
+                duration_ms=int((time.monotonic() - began) * 1000),
+            )
+        )
+        self.evidence.event(
+            "step",
+            id=step.id,
+            action=step.action,
+            strategy=found.strategy_kind,
+            tier=found.strategy_index,
+            fallback=found.used_fallback,
+        )
+
+        if step.expect is not None and wait_for(self.surface, step.expect) is None:
+            return self._fail(
+                step.id,
+                expected=f"after this step: {self._describe(step.expect)}",
+                observed="it never appeared before the timeout",
+            )
+        return None
+
+    def _act(self, step: Step, ref: str, bound: dict[str, str | SecretStr]) -> None:
+        if step.action == "click":
+            self.surface.click(ref)
+        elif step.action == "type":
+            self.surface.type(ref, render(step.value or "", bound))
+        elif step.action == "select":
+            self.surface.select(ref, render(step.value or "", bound))
+        elif step.action == "read":
+            value = self.surface.read(ref)
+            for output in self.cap.outputs:
+                if output.from_step == step.id:
+                    self.outputs[output.name] = value
+
+    # -- recovery -----------------------------------------------------------
+
+    def _try_recover(self, step: Step, snapshot: Snapshot) -> Recovery | None:
+        """Only conditions the capability declared, and only as often as it allows."""
+        for declared in self.cap.outcomes:
+            if declared.classification != "recoverable" or declared.recovery is None:
+                continue
+            if declared.detect is None or not satisfied(declared.detect, snapshot):
+                continue
+            used = self.recoveries.get(declared.name, 0)
+            if used >= declared.recovery.max_attempts:
+                self.evidence.event("recovery_exhausted", outcome=declared.name, attempts=used)
+                return None
+            self.recoveries[declared.name] = used + 1
+            self.evidence.event(
+                "recovering", outcome=declared.name, at_step=step.id, attempt=used + 1
+            )
+            return declared.recovery
+        return None
+
+    def _index_of(self, step_id: str) -> int:
+        for index, step in enumerate(self.cap.steps):
+            if step.id == step_id:
+                return index
+        raise ParameterError(f"recovery points at unknown step {step_id!r}")
+
+    # -- results ------------------------------------------------------------
+
+    def _business(self, name: str, step_id: str) -> BusinessOutcome:
+        declared = next((o for o in self.cap.outcomes if o.name == name), None)
+        message = declared.message if declared and declared.message else name
+        self.evidence.event("business_outcome", outcome=name, step=step_id, message=message)
+        return BusinessOutcome(
+            capability=self.cap.id,
+            version=self.cap.version,
+            steps=self.records,
+            outcome=name,
+            message=message,
+            step=step_id,
+        )
+
+    def _fail(self, step_id: str, *, expected: str, observed: str) -> HardFailure:
+        shot = self.evidence.screenshot(self.surface.page, f"failed-{step_id}")
+        self.evidence.event(
+            "hard_failure", step=step_id, expected=expected, observed=observed, screenshot=str(shot)
+        )
+        return HardFailure(
+            capability=self.cap.id,
+            version=self.cap.version,
+            steps=self.records,
+            step=step_id,
+            expected=expected,
+            observed=observed,
+            screenshot=str(shot),
+        )
+
+    def _finish(self, result: Result, started: float) -> Result:
+        final: Any = result.model_copy(
+            update={
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "steps": self.records,
+                "evidence": str(self.evidence.dir),
+            }
+        )
+        self.evidence.event("replay_finished", outcome=final.kind, duration_ms=final.duration_ms)
+        return final  # type: ignore[no-any-return]
+
+    @staticmethod
+    def _describe(checkpoint: Any) -> str:
+        if getattr(checkpoint, "kind", "") == "text_visible":
+            return f"the text {checkpoint.text!r}"
+        return getattr(checkpoint.target, "description", "the expected control")
+
+
+def dry_run(capability: Capability, supplied: dict[str, str]) -> list[str]:
+    """What a replay would do, without opening a browser.
+
+    Parameters are still validated, so a bad argument is caught here rather than
+    halfway through a real run.
+    """
+    bind(capability, supplied)
+    lines = [f"{capability.id} v{capability.version}: {capability.title}"]
+    for step in capability.steps:
+        target = step.target.description if step.target else capability.target.entry
+        flag = "  [RISKY - needs a person]" if step.risk == "risky" else ""
+        value = f" = {step.value}" if step.value else ""
+        lines.append(f"  {step.id:<32} {step.action:<8} {target}{value}{flag}")
+    lines.append(f"  success: {Replay._describe(capability.success)}")
+    for output in capability.outputs:
+        lines.append(f"  returns: {output.name} (from {output.from_step})")
+    return lines

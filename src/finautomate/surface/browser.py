@@ -59,6 +59,13 @@ class BrowserSurface:
         self._page = page
         self._base_url = base_url
 
+    @property
+    def page(self) -> Page:
+        """For evidence capture only - screenshots and traces. Anything that acts on
+        the page goes through the six methods above, or the Surface contract is a
+        polite fiction."""
+        return self._page
+
     def observe(self) -> Snapshot:
         # Only that a document exists and is parsed - deliberately not "the app has
         # finished working", which is not something the browser can tell us.

@@ -60,11 +60,36 @@ uv run --env-file .env finautomate discover \
 
 # 3. run it again from the recording, with no model involved
 uv run finautomate reset
-uv run finautomate replay ...   # Phase 4
+uv run finautomate replay artifacts/open_new_savings_account_funded_from_acc.yaml \
+  --param username=john \
+  --param account_type=SAVINGS \
+  --param funding_account_id=12345 \
+  --secret password=demo \
+  --attended
 ```
 
 Step 2 costs roughly eight cents and creates a real account, so reset between runs.
 Step 3 costs nothing and needs no API key.
+
+`--attended` says a person is watching. Without it the run stops before the step
+that opens the account, because that step is marked irreversible.
+
+Add `--dry-run` to print the plan without opening a browser.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | success, outputs returned |
+| 1 | hard failure - something is broken |
+| 2 | a business outcome - the application answered, and the answer was no |
+| 3 | held at a step that needs a person |
+
+Two is deliberately neither. "That account is not available to this customer" is an
+answer the caller needs, not a crash to page someone about.
+
+Try it: pass `--param funding_account_id=99999`, an account the customer does not
+own, and compare with stopping the app entirely (`docker stop parabank`).
 
 ## Development
 
