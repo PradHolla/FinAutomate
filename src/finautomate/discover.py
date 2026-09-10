@@ -49,6 +49,14 @@ from finautomate.surface.models import Control, Snapshot
 
 MODEL = "claude-sonnet-5"
 SETTLE_SECONDS = 6.0
+MAX_DONE_REJECTIONS = 2
+"""How many times the loop will push back before giving up.
+
+Pushing back is how a skipped parameter or an uncaptured output gets fixed. But if
+the model cannot satisfy the contract - a field is not on the page at all - an
+uncapped loop would refuse `done` until max_steps, paying for every turn. After
+this many refusals the run ends with no artifact, which is the honest outcome: an
+artifact missing a declared parameter is worse than none, because it validates."""
 
 # The model's tool names and the artifact's action vocabulary are deliberately not
 # the same. `type_secret` exists so the model can fill a password field without ever
@@ -250,6 +258,7 @@ class Discovery:
         self.success_text = ""
         self.summary = ""
         self.read_values: list[str] = []
+        self.rejections = 0
 
     # -- parameterization ---------------------------------------------------
 
@@ -299,7 +308,13 @@ class Discovery:
             )
 
             unaccounted = self._missing_outputs() + self._missing_params()
+            if block.name == "done" and unaccounted and self.rejections >= MAX_DONE_REJECTIONS:
+                outcome = "incomplete"
+                self.evidence.event("gave_up", missing=list(unaccounted))
+                break
+
             if block.name == "done" and (missing := unaccounted):
+                self.rejections += 1
                 # The caller declared what this capability must return. Finishing
                 # without it produces an artifact that satisfies its goal in prose
                 # and returns nothing, which is worse than a failed run because it

@@ -250,3 +250,30 @@ def test_customer_data_is_never_recorded_as_a_locator() -> None:
     assert bundle is not None
     for strategy in bundle.strategies:
         assert strategy.kind != "text", f"recorded customer data: {strategy}"
+
+
+def test_forbidding_run_data_degrades_rather_than_breaks() -> None:
+    """The run-data filter is deliberately blunt, so check what it costs.
+
+    A parameter value can legitimately appear inside a control's name - a button
+    called "Open SAVINGS Account" when SAVINGS is the account_type parameter. That
+    strategy gets dropped even though it would have worked. The point of this test
+    is that the ladder degrades: a lower strategy still resolves, so the step is
+    still recordable. If nothing survives, `build_bundle` returns None loudly
+    rather than emitting a locator that works exactly once.
+    """
+    page = Snapshot(
+        url="/x",
+        title="x",
+        anchors=[TextAnchor(text="Account options", doc_order=0)],
+        controls=[ctl("b1", "button", 1, name="Open SAVINGS Account", field_id="openBtn")],
+    )
+    bundle = build_bundle(page.control("b1"), page, "open", frozenset({"SAVINGS"}))
+    assert bundle is not None, "a lower strategy should still address it"
+    assert all("SAVINGS" not in str(s) for s in bundle.strategies)
+
+    # Nothing but the name to go on: an honest None rather than a one-run locator.
+    bare = Snapshot(
+        url="/x", title="x", anchors=[], controls=[ctl("b2", "button", 0, name="SAVINGS")]
+    )
+    assert build_bundle(bare.control("b2"), bare, "x", frozenset({"SAVINGS"})) is None
