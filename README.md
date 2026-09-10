@@ -43,13 +43,28 @@ No secrets are read from or written to this repository.
 
 ## Demo path
 
-_To be filled in as the phases land. Will be the exact two commands: run the agent
-on a goal, then replay the resulting artifact._
+Reset the target to a known state, discover a capability, then replay it.
 
 ```bash
-uv run finautomate discover ...
-uv run finautomate replay ...
+# 1. put the demo data back
+uv run finautomate reset
+
+# 2. let the model work out how to do the job, once
+uv run --env-file .env finautomate discover \
+  "Open a new SAVINGS account funded from account 12345, and return the new account number" \
+  --param username=john \
+  --param account_type=SAVINGS \
+  --param funding_account_id=12345 \
+  --secret password=demo \
+  --expect-output new_account_number
+
+# 3. run it again from the recording, with no model involved
+uv run finautomate reset
+uv run finautomate replay ...   # Phase 4
 ```
+
+Step 2 costs roughly eight cents and creates a real account, so reset between runs.
+Step 3 costs nothing and needs no API key.
 
 ## Development
 

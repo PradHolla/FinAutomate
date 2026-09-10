@@ -9,9 +9,11 @@ import yaml
 from anthropic import Anthropic
 from playwright.sync_api import sync_playwright
 
-from finautomate.artifact import dump_capability
+from finautomate.artifact import LocatorBundle, RoleName, TextVisible, dump_capability
+from finautomate.checkpoint import wait_for
 from finautomate.discover import Discovery
 from finautomate.evidence import Evidence
+from finautomate.locate import explain, resolve
 from finautomate.policy import Guards, Policy
 from finautomate.surface.browser import BrowserSurface
 
@@ -90,6 +92,53 @@ def discover(
     path = out / f"{capability.id}.yaml"
     dump_capability(capability, path)
     typer.secho(f"recorded {len(capability.steps)} steps to {path}", fg=typer.colors.GREEN)
+
+
+@app.command()
+def reset(
+    config: Annotated[Path, typer.Option(help="Target config.")] = Path("config/parabank.yaml"),
+    clean: Annotated[
+        bool, typer.Option(help="Strip the demo data instead of restoring it.")
+    ] = False,
+) -> None:
+    """Restore the target application's demo data to a known state.
+
+    Replays create real records, so runs need a clean starting point. This drives
+    the app's own admin screen through the same surface driver and locator
+    resolution the replay engine uses - no CSS selectors, no special casing.
+    """
+    settings = yaml.safe_load(config.read_text(encoding="utf-8"))
+    options = settings["reset"]
+    label = options["clean"] if clean else options["initialize"]
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            surface = BrowserSurface(browser.new_page(), settings["base_url"])
+            surface.navigate(options["path"])
+            target = LocatorBundle(
+                description=f"the {label} button",
+                strategies=[RoleName(kind="role_name", role="button", name=label)],
+            )
+            found = resolve(target, surface.observe())
+            if found.control is None:
+                typer.secho(explain(target, found), fg=typer.colors.RED)
+                raise typer.Exit(1)
+            surface.click(found.control.ref)
+            confirmed = TextVisible(
+                kind="text_visible",
+                text=options["confirms"],
+                match="contains",
+                timeout_ms=20_000,
+            )
+            settled = wait_for(surface, confirmed)
+        finally:
+            browser.close()
+
+    if settled is None:
+        typer.secho(f"{label} did not confirm within the timeout", fg=typer.colors.RED)
+        raise typer.Exit(1)
+    typer.secho(f"{label.lower()}d - target is at a known state", fg=typer.colors.GREEN)
 
 
 @app.command()

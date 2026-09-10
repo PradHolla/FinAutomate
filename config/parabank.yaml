@@ -26,6 +26,15 @@ policy:
     - Withdraw
     - Apply Now
 
+# Used by `finautomate reset`, which is an operator command, not something the
+# agent can reach. The policy above denies the agent the admin page precisely
+# because it can wipe the database; a person typing this command has decided to.
+reset:
+  path: /parabank/admin.htm
+  initialize: Initialize
+  clean: Clean
+  confirms: Database
+
 guards:
   max_steps: 25
   max_seconds: 300
