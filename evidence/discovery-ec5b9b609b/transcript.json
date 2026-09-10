@@ -11,7 +11,7 @@
     "role": "assistant",
     "content": [
       "TextBlock(citations=None, text=\"I'll start by logging in with the provided username and password.\", type='text')",
-      "ToolUseBlock(id='toolu_013L7Dg17CgCTPpPEugbZaMV', caller=DirectCaller(type='direct'), input={'ref': 'c8', 'description': 'Username field', 'text': 'john'}, name='type_text', type='tool_use', toolset_name=None)"
+      "ToolUseBlock(id='toolu_01MpFzr9mhVT79kLP3fpf4Kk', caller=DirectCaller(type='direct'), input={'ref': 'c8', 'description': 'Username field', 'text': 'john'}, name='type_text', type='tool_use', toolset_name=None)"
     ]
   },
   {
@@ -19,7 +19,7 @@
     "content": [
       {
         "type": "tool_result",
-        "tool_use_id": "toolu_013L7Dg17CgCTPpPEugbZaMV",
+        "tool_use_id": "toolu_01MpFzr9mhVT79kLP3fpf4Kk",
         "content": "typed"
       }
     ]
@@ -31,7 +31,7 @@
   {
     "role": "assistant",
     "content": [
-      "ToolUseBlock(id='toolu_016EALhaGrvZoW2U6iAQaC1t', caller=DirectCaller(type='direct'), input={'ref': 'c9', 'description': 'Password field', 'parameter': 'password'}, name='type_secret', type='tool_use', toolset_name=None)"
+      "ToolUseBlock(id='toolu_01F3Km8vp7wcc8Aebn2KygRp', caller=DirectCaller(type='direct'), input={'ref': 'c9', 'description': 'Password field', 'parameter': 'password'}, name='type_secret', type='tool_use', toolset_name=None)"
     ]
   },
   {
@@ -39,7 +39,7 @@
     "content": [
       {
         "type": "tool_result",
-        "tool_use_id": "toolu_016EALhaGrvZoW2U6iAQaC1t",
+        "tool_use_id": "toolu_01F3Km8vp7wcc8Aebn2KygRp",
         "content": "typed secret"
       }
     ]
@@ -51,7 +51,7 @@
   {
     "role": "assistant",
     "content": [
-      "ToolUseBlock(id='toolu_01Jv78zd3u6ZuLpoG2gr1JrW', caller=DirectCaller(type='direct'), input={'ref': 'c10', 'description': 'Log In button'}, name='click', type='tool_use', toolset_name=None)"
+      "ToolUseBlock(id='toolu_01CgAA2M7XVma9whgva7aapu', caller=DirectCaller(type='direct'), input={'ref': 'c10', 'description': 'Log In button'}, name='click', type='tool_use', toolset_name=None)"
     ]
   },
   {
@@ -59,7 +59,7 @@
     "content": [
       {
         "type": "tool_result",
-        "tool_use_id": "toolu_01Jv78zd3u6ZuLpoG2gr1JrW",
+        "tool_use_id": "toolu_01CgAA2M7XVma9whgva7aapu",
         "content": "clicked"
       }
     ]
@@ -71,7 +71,8 @@
   {
     "role": "assistant",
     "content": [
-      "ToolUseBlock(id='toolu_014GC33pXpSDZdF5rFATtMWi', caller=DirectCaller(type='direct'), input={'ref': 'c8', 'description': 'Open New Account link'}, name='click', type='tool_use', toolset_name=None)"
+      "TextBlock(citations=None, text=\"I'm logged in. Now let's navigate to Open New Account.\", type='text')",
+      "ToolUseBlock(id='toolu_019d9RKD1qdSmJT9e7fGyfXt', caller=DirectCaller(type='direct'), input={'ref': 'c8', 'description': 'Open New Account link'}, name='click', type='tool_use', toolset_name=None)"
     ]
   },
   {
@@ -79,7 +80,7 @@
     "content": [
       {
         "type": "tool_result",
-        "tool_use_id": "toolu_014GC33pXpSDZdF5rFATtMWi",
+        "tool_use_id": "toolu_019d9RKD1qdSmJT9e7fGyfXt",
         "content": "clicked"
       }
     ]
@@ -91,8 +92,7 @@
   {
     "role": "assistant",
     "content": [
-      "ThinkingBlock(signature='ErgCCpABCBEYAipAbnkjSh970mZo+8HAJChvyDwoLlx8WHZKnkJsvWw3tL5tn0MDKhhTHp7nN4XwYG0FZLgdWkcReSSzqFy3MpSdojIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQwYzQwZTQ3Ny0xZGE1LTRhZmQtYTI1Yi00MjBjNTA5MzkzNGOoAZ39h9UGEgxeO3GxxsSs5LjRIwkaDEDRz9732nXYDUek1SIw58stXJQnfCltWj6jqp7pX3ZhD5RmzYwIZJXKqLxn5lpM8MGXkfeMiK9waGqGoG5AKlUxM7QTjXE+L7PI5u0dWH0+2Npo1urVERH+FI6enAiakY+q/MBMh75KHbW1PSBUJWyGdBriKM82rzxddUra9zwKMLY5PnU3VzXgRad7w2X8QsQRHX88GAE=', thinking='', type='thinking')",
-      "ToolUseBlock(id='toolu_01VNZ132E5fJ35YxhxFzdrXM', caller=DirectCaller(type='direct'), input={'ref': 'c16', 'description': 'Account type dropdown', 'label': 'SAVINGS'}, name='select', type='tool_use', toolset_name=None)"
+      "ToolUseBlock(id='toolu_018iWXKYaCBeXiiGjdaF2Fbo', caller=DirectCaller(type='direct'), input={'ref': 'c16', 'description': 'Account type dropdown', 'label': 'SAVINGS'}, name='select', type='tool_use', toolset_name=None)"
     ]
   },
   {
@@ -100,7 +100,7 @@
     "content": [
       {
         "type": "tool_result",
-        "tool_use_id": "toolu_01VNZ132E5fJ35YxhxFzdrXM",
+        "tool_use_id": "toolu_018iWXKYaCBeXiiGjdaF2Fbo",
         "content": "selected 'SAVINGS'"
       }
     ]
@@ -112,8 +112,8 @@
   {
     "role": "assistant",
     "content": [
-      "TextBlock(citations=None, text=\"Funding account is already set to 12345, which matches the requirement. Now I'll click Open New Account.\", type='text')",
-      "ToolUseBlock(id='toolu_01CFm5X7awS2LuHHD7nBtWYr', caller=DirectCaller(type='direct'), input={'ref': 'c17', 'description': 'Funding account dropdown', 'label': '12345'}, name='select', type='tool_use', toolset_name=None)"
+      "TextBlock(citations=None, text='The funding account dropdown already has 12345 selected. Let me explicitly set it to be sure.', type='text')",
+      "ToolUseBlock(id='toolu_01A9bcsRy1VythHFYoFWdFDU', caller=DirectCaller(type='direct'), input={'ref': 'c17', 'description': 'Funding account dropdown', 'label': '12345'}, name='select', type='tool_use', toolset_name=None)"
     ]
   },
   {
@@ -121,7 +121,7 @@
     "content": [
       {
         "type": "tool_result",
-        "tool_use_id": "toolu_01CFm5X7awS2LuHHD7nBtWYr",
+        "tool_use_id": "toolu_01A9bcsRy1VythHFYoFWdFDU",
         "content": "selected '12345'"
       }
     ]
@@ -133,7 +133,8 @@
   {
     "role": "assistant",
     "content": [
-      "ToolUseBlock(id='toolu_01V4YsCGJYh9SoRZRpshrxCZ', caller=DirectCaller(type='direct'), input={'ref': 'c18', 'description': 'Open New Account button'}, name='click', type='tool_use', toolset_name=None)"
+      "TextBlock(citations=None, text='Now let\\'s click \"Open New Account\" to submit.', type='text')",
+      "ToolUseBlock(id='toolu_01G42JBHCV5ZRwg5kdTqTyku', caller=DirectCaller(type='direct'), input={'ref': 'c18', 'description': 'Open New Account submit button'}, name='click', type='tool_use', toolset_name=None)"
     ]
   },
   {
@@ -141,7 +142,7 @@
     "content": [
       {
         "type": "tool_result",
-        "tool_use_id": "toolu_01V4YsCGJYh9SoRZRpshrxCZ",
+        "tool_use_id": "toolu_01G42JBHCV5ZRwg5kdTqTyku",
         "content": "clicked"
       }
     ]
@@ -153,7 +154,8 @@
   {
     "role": "assistant",
     "content": [
-      "ToolUseBlock(id='toolu_01BYpTUjcMBwC5NkvdGyv2Nh', caller=DirectCaller(type='direct'), input={'ref': 'c16', 'description': 'New account number link', 'output_name': 'new_account_number'}, name='read', type='tool_use', toolset_name=None)"
+      "TextBlock(citations=None, text='The account was opened successfully. Let me read the new account number.', type='text')",
+      "ToolUseBlock(id='toolu_01MSCVSjNebyv2EJddhf9bh8', caller=DirectCaller(type='direct'), input={'ref': 'c16', 'description': 'New account number link', 'output_name': 'new_account_number'}, name='read', type='tool_use', toolset_name=None)"
     ]
   },
   {
@@ -161,7 +163,7 @@
     "content": [
       {
         "type": "tool_result",
-        "tool_use_id": "toolu_01BYpTUjcMBwC5NkvdGyv2Nh",
+        "tool_use_id": "toolu_01MSCVSjNebyv2EJddhf9bh8",
         "content": "read '13566'"
       }
     ]
@@ -173,7 +175,8 @@
   {
     "role": "assistant",
     "content": [
-      "ToolUseBlock(id='toolu_01UEe8TzHdxQDZPAvSjHYdvE', caller=DirectCaller(type='direct'), input={'summary': 'Logged in as john, opened a new SAVINGS account funded from account 12345. The new account number is 13566.', 'success_text': 'Account Opened!'}, name='done', type='tool_use', toolset_name=None)"
+      "TextBlock(citations=None, text='The new SAVINGS account has been successfully opened and funded from account 12345. The new account number is 13566.', type='text')",
+      "ToolUseBlock(id='toolu_01K8GQwM3E51eoZtSgdhmBek', caller=DirectCaller(type='direct'), input={'summary': 'Successfully opened a new SAVINGS account funded from account 12345. The new account number is 13566.', 'success_text': 'Account Opened!'}, name='done', type='tool_use', toolset_name=None)"
     ]
   }
 ]

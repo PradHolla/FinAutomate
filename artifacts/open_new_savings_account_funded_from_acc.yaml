@@ -2,8 +2,8 @@ schema_version: 1
 id: open_new_savings_account_funded_from_acc
 version: 1
 title: Open a new SAVINGS account funded from account 12345, and return the new account
-description: Logged in as john, opened a new SAVINGS account funded from account 12345. The
-  new account number is 13566.
+description: Successfully opened a new SAVINGS account funded from account 12345. The new
+  account number is 13566.
 target:
   app: parabank
   surface: browser
@@ -183,9 +183,6 @@ steps:
       position: after
     - kind: field_id
       id: type
-    - kind: text
-      text: CHECKING SAVINGS
-      match: exact
   value: '{{account_type}}'
   by: label
   risk: safe
@@ -208,17 +205,14 @@ steps:
       position: after
     - kind: field_id
       id: fromAccountId
-    - kind: text
-      text: '1234512456125671267812789129001301113122132331334454321'
-      match: exact
   value: '{{funding_account_id}}'
   by: label
   risk: safe
   outcomes: {}
-- id: click_open_new_account_2
+- id: click_open_new_account_submit
   action: click
   target:
-    description: Open New Account button
+    description: Open New Account submit button
     strategies:
     - kind: role_name
       role: button
@@ -268,10 +262,6 @@ steps:
   target:
     description: New account number link
     strategies:
-    - kind: role_name
-      role: link
-      name: '13566'
-      match: exact
     - kind: anchored_role
       role: link
       anchor: 'Your new account number:'
@@ -299,8 +289,8 @@ success:
   timeout_ms: 10000
 outcomes: []
 recorded:
-  at: '2026-09-10T00:50:00.009014Z'
-  run: discovery-7a9106ec82
+  at: '2026-09-10T02:31:24.860820Z'
+  run: discovery-ec5b9b609b
   model: claude-sonnet-5
   goal: Open a new SAVINGS account funded from account 12345, and return the new account number
-  evidence: evidence/discovery-7a9106ec82
+  evidence: evidence/discovery-ec5b9b609b

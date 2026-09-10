@@ -298,7 +298,8 @@ class Discovery:
                 url=snapshot.url,
             )
 
-            if block.name == "done" and (missing := self._missing_outputs()):
+            unaccounted = self._missing_outputs() + self._missing_params()
+            if block.name == "done" and (missing := unaccounted):
                 # The caller declared what this capability must return. Finishing
                 # without it produces an artifact that satisfies its goal in prose
                 # and returns nothing, which is worse than a failed run because it
@@ -307,8 +308,10 @@ class Discovery:
                 self.evidence.event("done_rejected", step=step_number, missing=list(missing))
                 wanted = ", ".join(missing)
                 nudge = (
-                    f"Not finished. This capability must return {wanted}. "
-                    "Use `read` on the value on screen first, then call done."
+                    f"Not finished. These are still unaccounted for: {wanted}. "
+                    "Every parameter must be set explicitly on the screen, even when a "
+                    "field already looks correct, and every required output must be "
+                    "captured with `read`. Do that, then call done."
                 )
                 messages.append(
                     {
@@ -363,6 +366,19 @@ class Discovery:
     def _missing_outputs(self) -> tuple[str, ...]:
         captured = {o.name for o in self.outputs}
         return tuple(name for name in self.expect_outputs if name not in captured)
+
+    def _missing_params(self) -> tuple[str, ...]:
+        """Parameters the caller supplied that no recorded step actually uses.
+
+        An unused parameter is a lie in the capability's contract: the file claims
+        to take a funding account and then ignores it. It happens when a field
+        already holds an acceptable value and the model sees no reason to touch it -
+        which is true for this run and false for the next caller. Observed twice on
+        the same prompt, so the instruction is not enough on its own.
+        """
+        used = {p for step in self.steps for p in re.findall(r"\{\{(\w+)\}\}", step.value or "")}
+        declared = {*self.params, *self.secrets}
+        return tuple(sorted(declared - used))
 
     def _stale(self, expected: Control) -> str:
         """Empty string when the ref still points at the same control."""
@@ -497,7 +513,14 @@ class Discovery:
         if decision.blocked:
             return f"REFUSED by policy: {decision.reason}"
 
-        bundle = build_bundle(control, snapshot, description)
+        # A `read` step is the one place where the control's own name is the data
+        # we are about to return. Peek at it first so it can be kept out of the
+        # locator - "the link named 13566" works exactly once.
+        peeked = self.surface.read(control.ref) if block.name == "read" else ""
+        forbid = frozenset(
+            v for v in [*self.params.values(), *self.read_values, peeked] if v and len(v) > 2
+        )
+        bundle = build_bundle(control, snapshot, description, forbid)
         if bundle is None:
             return f"{description!r} cannot be recorded - no stable way to find it again."
 
@@ -629,6 +652,9 @@ class Discovery:
             id=_slug(goal, "capability").replace("capability_", "") or "capability",
             version=1,
             title=goal[:80],
+            # Deliberately not trimmed. `_stable` exists to protect the success
+            # matcher; applied to prose it cuts a sentence in half at the first
+            # parameter value, which is worse than a description that names one run.
             description=self.summary or goal,
             target=Target(app=app, surface="browser", entry=entry),
             inputs=inputs,

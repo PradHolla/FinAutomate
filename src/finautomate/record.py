@@ -32,13 +32,33 @@ MAX_ANCHORS = 5
 section headings that happen to precede it rather than describe it."""
 
 
-def build_bundle(control: Control, snapshot: Snapshot, description: str) -> LocatorBundle | None:
+def build_bundle(
+    control: Control,
+    snapshot: Snapshot,
+    description: str,
+    forbid: frozenset[str] = frozenset(),
+) -> LocatorBundle | None:
     """Ordered ways to find `control` again, best first. None if it cannot be
-    addressed at all - a control with no name, no anchor, no id and no text."""
-    verified = [s for s in _proposals(control, snapshot) if _resolves_to(s, control, snapshot)]
+    addressed at all - a control with no name, no anchor, no id and no text.
+
+    `forbid` is this run's own data: the parameters supplied and the values read
+    off the screen. A locator containing any of it would resolve perfectly on the
+    run that produced it and never again, because the next caller has different
+    data. Verification cannot catch that - the locator genuinely is correct today.
+    """
+    proposals = [s for s in _proposals(control, snapshot) if not _carries(s, forbid)]
+    verified = [s for s in proposals if _resolves_to(s, control, snapshot)]
     if not verified:
         return None
     return LocatorBundle(description=description, strategies=verified)
+
+
+def _carries(strategy: Strategy, forbid: frozenset[str]) -> bool:
+    """Whether a strategy embeds any of this run's data."""
+    payload = " ".join(
+        str(getattr(strategy, field, "")) for field in ("name", "anchor", "text", "id")
+    )
+    return any(value and value in payload for value in forbid)
 
 
 def _resolves_to(strategy: Strategy, control: Control, snapshot: Snapshot) -> bool:
@@ -70,10 +90,18 @@ def _proposals(control: Control, snapshot: Snapshot) -> list[Strategy]:
     if control.field_id:
         out.append(FieldId(kind="field_id", id=control.field_id))
 
-    if control.text and control.text != control.name:
+    # Text containing a digit is almost always data rather than a label - an
+    # account number, an amount, a date. Recording it produces a locator that only
+    # matches the run it came from, and quietly puts one customer's data into a
+    # capability meant to be reused for every customer.
+    if control.text and control.text != control.name and not _has_digit(control.text):
         out.append(TextContent(kind="text", text=control.text))
 
     return out
+
+
+def _has_digit(text: str) -> bool:
+    return any(character.isdigit() for character in text)
 
 
 def _anchored(control: Control, snapshot: Snapshot) -> list[Strategy]:

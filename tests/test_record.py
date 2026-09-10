@@ -219,3 +219,34 @@ def test_every_tool_maps_to_an_allowed_action() -> None:
             continue
         assert name in TOOL_ACTION, f"tool {name!r} has no action mapping"
         assert TOOL_ACTION[name] in policy.allowed_actions, f"{name!r} maps outside the allowlist"
+
+
+def test_customer_data_is_never_recorded_as_a_locator() -> None:
+    """A control whose visible text is data must not be addressed by that text.
+
+    Found by reading a real recorded artifact: the funding-account dropdown had a
+    text strategy of '1234512456125671267812789...' - every account number this
+    customer owns, run together. It resolved correctly on the page it came from,
+    which is exactly why verification alone did not catch it. It would match no
+    other customer, and it puts one customer's account numbers into a capability
+    meant to be reused for all of them.
+    """
+    page = Snapshot(
+        url="/x",
+        title="x",
+        anchors=[TextAnchor(text="Choose an account", doc_order=0)],
+        controls=[
+            ctl(
+                "s1",
+                "combobox",
+                1,
+                field_id="fromAccountId",
+                text="1234512456125671267812789",
+                options=["12345", "12456"],
+            )
+        ],
+    )
+    bundle = build_bundle(page.control("s1"), page, "funding account")
+    assert bundle is not None
+    for strategy in bundle.strategies:
+        assert strategy.kind != "text", f"recorded customer data: {strategy}"

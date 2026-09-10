@@ -134,7 +134,10 @@
             value: valueOf(child),
             field_name: child.getAttribute("name") || "",
             field_id: child.getAttribute("id") || "",
-            text: normalizeWs(child.textContent).slice(0, 200),
+            // A <select>'s textContent is every option run together, which is not
+            // a description of the control - it is its data. The options are
+            // already reported separately.
+            text: child.tagName === "SELECT" ? "" : normalizeWs(child.textContent).slice(0, 200),
             options: optionsOf(child),
             enabled: !child.disabled,
             doc_order: docOrder++,
