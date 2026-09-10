@@ -1,0 +1,32 @@
+# Runtime configuration for the ParaBank target.
+#
+# Nothing here is a secret. The API key comes from the environment, and the
+# capability's own parameters are supplied per invocation.
+
+base_url: http://localhost:8080
+
+policy:
+  # The agent cannot navigate outside the application it was pointed at.
+  allowed_path_prefix: /parabank/
+
+  allowed_actions: [navigate, click, type, select, read]
+
+  # Never, whatever the model decides. The admin page can wipe the database and
+  # needs no login, which is precisely why it is listed.
+  denied_control_names:
+    - Admin Page
+    - Log Out
+
+  # Permitted while discovering, because discovering is the point. Recorded as
+  # risky so that an unattended replay stops here and asks a person.
+  risky_control_names:
+    - Open New Account
+    - Transfer
+    - Send Payment
+    - Withdraw
+    - Apply Now
+
+guards:
+  max_steps: 25
+  max_seconds: 300
+  max_tokens_total: 200000

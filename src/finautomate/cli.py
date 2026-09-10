@@ -1,6 +1,19 @@
 """Command line entry point."""
 
+import uuid
+from pathlib import Path
+from typing import Annotated
+
 import typer
+import yaml
+from anthropic import Anthropic
+from playwright.sync_api import sync_playwright
+
+from finautomate.artifact import dump_capability
+from finautomate.discover import Discovery
+from finautomate.evidence import Evidence
+from finautomate.policy import Guards, Policy
+from finautomate.surface.browser import BrowserSurface
 
 app = typer.Typer(
     add_completion=False,
@@ -8,10 +21,75 @@ app = typer.Typer(
 )
 
 
+def _pairs(values: list[str], flag: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for value in values:
+        name, _, literal = value.partition("=")
+        if not name or not _:
+            raise typer.BadParameter(f"{flag} expects name=value, got {value!r}")
+        out[name] = literal
+    return out
+
+
 @app.command()
-def discover() -> None:
+def discover(
+    goal: Annotated[str, typer.Argument(help="What to accomplish, in plain English.")],
+    config: Annotated[Path, typer.Option(help="Target and policy config.")] = Path(
+        "config/parabank.yaml"
+    ),
+    entry: Annotated[str, typer.Option(help="Path to start from.")] = "/parabank/index.htm",
+    param: Annotated[list[str], typer.Option(help="name=value, repeatable.")] = [],  # noqa: B006
+    secret: Annotated[
+        list[str], typer.Option(help="name=value the model never sees. Repeatable.")
+    ] = [],  # noqa: B006
+    expect_output: Annotated[
+        list[str], typer.Option(help="A value the capability must return. Repeatable.")
+    ] = [],  # noqa: B006
+    out: Annotated[Path, typer.Option(help="Where to write the capability.")] = Path("artifacts"),
+    headed: Annotated[bool, typer.Option(help="Show the browser.")] = False,
+) -> None:
     """Drive a live UI with an LLM until a goal is met, then save a capability."""
-    raise NotImplementedError("Phase 3")
+    settings = yaml.safe_load(config.read_text(encoding="utf-8"))
+    policy = Policy.model_validate(settings["policy"])
+    guards = Guards.model_validate(settings.get("guards", {}))
+    params, secrets = _pairs(param, "--param"), _pairs(secret, "--secret")
+
+    run_id = f"discovery-{uuid.uuid4().hex[:10]}"
+    evidence = Evidence(Path("evidence"), run_id, frozenset(secrets.values()))
+    typer.echo(f"run {run_id}  goal: {goal}")
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=not headed)
+        try:
+            run = Discovery(
+                surface=BrowserSurface(browser.new_page(), settings["base_url"]),
+                client=Anthropic(),
+                policy=policy,
+                guards=guards,
+                evidence=evidence,
+                params=params,
+                secrets=secrets,
+                expect_outputs=tuple(expect_output),
+            )
+            capability = run.run(goal, entry, settings.get("app", "parabank"))
+        finally:
+            browser.close()
+
+    cost = run.tokens_in / 1e6 * 2 + run.tokens_out / 1e6 * 10
+    typer.echo(
+        f"{run.calls} model calls, {run.tokens_in} in / {run.tokens_out} out "
+        f"tokens, about ${cost:.3f}"
+    )
+    typer.echo(f"evidence: {evidence.dir}")
+
+    if capability is None:
+        typer.secho("no capability recorded - see the evidence log", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{capability.id}.yaml"
+    dump_capability(capability, path)
+    typer.secho(f"recorded {len(capability.steps)} steps to {path}", fg=typer.colors.GREEN)
 
 
 @app.command()

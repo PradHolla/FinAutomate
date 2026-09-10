@@ -1,0 +1,306 @@
+schema_version: 1
+id: open_new_savings_account_funded_from_acc
+version: 1
+title: Open a new SAVINGS account funded from account 12345, and return the new account
+description: Logged in as john, opened a new SAVINGS account funded from account 12345. The
+  new account number is 13566.
+target:
+  app: parabank
+  surface: browser
+  entry: /parabank/index.htm
+inputs:
+- name: username
+  type: string
+  required: true
+  secret: false
+- name: account_type
+  type: string
+  required: true
+  secret: false
+- name: funding_account_id
+  type: string
+  required: true
+  secret: false
+- name: password
+  type: string
+  required: true
+  secret: true
+outputs:
+- name: new_account_number
+  type: string
+  from_step: read_new_account_number
+steps:
+- id: type_text_username
+  action: type
+  target:
+    description: Username field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: Username
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Customer Login
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Solutions
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Experience the difference
+      match: exact
+      position: after
+    - kind: field_name
+      name: username
+  value: '{{username}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_secret_password
+  action: type
+  target:
+    description: Password field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: Password
+      match: exact
+      position: after
+    - kind: field_name
+      name: password
+  value: '{{password}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: click_log_in
+  action: click
+  target:
+    description: Log In button
+    strategies:
+    - kind: role_name
+      role: button
+      name: Log In
+      match: exact
+    - kind: anchored_role
+      role: button
+      anchor: Password
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Username
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Customer Login
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Solutions
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Experience the difference
+      match: exact
+      position: after
+  by: label
+  risk: safe
+  expect:
+    kind: text_visible
+    text: Welcome
+    match: contains
+    timeout_ms: 10000
+  outcomes: {}
+- id: click_open_new_account
+  action: click
+  target:
+    description: Open New Account link
+    strategies:
+    - kind: role_name
+      role: link
+      name: Open New Account
+      match: exact
+    - kind: anchored_role
+      role: link
+      anchor: Account Services
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: link
+      anchor: Welcome
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: link
+      anchor: John Smith
+      match: exact
+      position: after
+  by: label
+  risk: safe
+  expect:
+    kind: text_visible
+    text: Open New Account
+    match: contains
+    timeout_ms: 10000
+  outcomes: {}
+- id: select_account_type
+  action: select
+  target:
+    description: Account type dropdown
+    strategies:
+    - kind: anchored_role
+      role: combobox
+      anchor: What type of Account would you like to open?
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: Open New Account
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: Account Services
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: Welcome
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: John Smith
+      match: exact
+      position: after
+    - kind: field_id
+      id: type
+    - kind: text
+      text: CHECKING SAVINGS
+      match: exact
+  value: '{{account_type}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: select_funding_account
+  action: select
+  target:
+    description: Funding account dropdown
+    strategies:
+    - kind: anchored_role
+      role: combobox
+      anchor: A minimum of
+      match: prefix
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: A minimum of $100.00 must be deposited into this account at time of opening.
+        Please choose an existing account to transfer funds into the new account.
+      match: exact
+      position: after
+    - kind: field_id
+      id: fromAccountId
+    - kind: text
+      text: '1234512456125671267812789129001301113122132331334454321'
+      match: exact
+  value: '{{funding_account_id}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: click_open_new_account_2
+  action: click
+  target:
+    description: Open New Account button
+    strategies:
+    - kind: role_name
+      role: button
+      name: Open New Account
+      match: exact
+    - kind: anchored_role
+      role: button
+      anchor: A minimum of
+      match: prefix
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: A minimum of $100.00 must be deposited into this account at time of opening.
+        Please choose an existing account to transfer funds into the new account.
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: What type of Account would you like to open?
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Open New Account
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Account Services
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Welcome
+      match: exact
+      position: after
+  by: label
+  risk: risky
+  expect:
+    kind: text_visible
+    text: Account Opened!
+    match: contains
+    timeout_ms: 10000
+  outcomes: {}
+- id: read_new_account_number
+  action: read
+  target:
+    description: New account number link
+    strategies:
+    - kind: role_name
+      role: link
+      name: '13566'
+      match: exact
+    - kind: anchored_role
+      role: link
+      anchor: 'Your new account number:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: link
+      anchor: Congratulations, your account is now open.
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: link
+      anchor: Account Opened!
+      match: exact
+      position: after
+    - kind: field_id
+      id: newAccountId
+  by: label
+  risk: safe
+  outcomes: {}
+success:
+  kind: text_visible
+  text: Account Opened
+  match: contains
+  timeout_ms: 10000
+outcomes: []
+recorded:
+  at: '2026-09-10T00:50:00.009014Z'
+  run: discovery-7a9106ec82
+  model: claude-sonnet-5
+  goal: Open a new SAVINGS account funded from account 12345, and return the new account number
+  evidence: evidence/discovery-7a9106ec82
