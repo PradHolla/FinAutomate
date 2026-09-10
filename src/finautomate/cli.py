@@ -8,6 +8,7 @@ import typer
 import yaml
 from anthropic import Anthropic
 from playwright.sync_api import sync_playwright
+from pydantic import ValidationError
 
 from finautomate.artifact import (
     LocatorBundle,
@@ -159,7 +160,19 @@ def reset(
 
 @app.command()
 def replay(
-    artifact: Annotated[Path, typer.Argument(help="The capability to run.")],
+    artifact: Annotated[
+        Path,
+        typer.Argument(
+            help="The capability to run.",
+            # Click checks these before our code runs, so a missing file or an
+            # unset shell variable gets a one-line error instead of a traceback.
+            # Note Path("") is "." in Python, so an empty argument arrives as the
+            # current directory rather than as nothing - hence dir_okay=False.
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
     param: Annotated[list[str], typer.Option(help="name=value, repeatable.")] = [],  # noqa: B006
     secret: Annotated[
         list[str], typer.Option(help="name=value for a secret input. Repeatable.")
@@ -172,7 +185,14 @@ def replay(
     headed: Annotated[bool, typer.Option(help="Show the browser.")] = False,
 ) -> None:
     """Replay a saved capability with no LLM in the decision loop."""
-    capability = load_capability(artifact)
+    try:
+        capability = load_capability(artifact)
+    except ValidationError as err:
+        typer.secho(f"{artifact} is not a valid capability:", fg=typer.colors.RED)
+        for problem in err.errors():
+            where = ".".join(str(p) for p in problem["loc"])
+            typer.echo(f"  {where}: {problem['msg']}")
+        raise typer.Exit(1) from err
     supplied = {**_pairs(param, "--param"), **_pairs(secret, "--secret")}
 
     if dry:
