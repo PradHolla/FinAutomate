@@ -227,6 +227,7 @@ def replay(
                 attended=attended,
                 interventions=InterventionStore() if wait_for_human else None,
                 wait_seconds=wait_for_human,
+                announce=typer.echo,
             )
             result = engine.run(supplied)
         except ParameterError as err:
@@ -321,6 +322,12 @@ def _report(result: Any) -> None:
     elif result.kind == "needs_human":
         typer.echo(f"  held at {result.step}")
         typer.echo(f"  {result.reason}")
+        if not result.intervention:
+            typer.echo(
+                "\n  Nobody was asked, because this run was not waiting for anyone."
+                "\n  To hand the live session to a person instead, add:"
+                "\n      --wait-for-human 300 --headed"
+            )
     elif result.kind == "hard_failure":
         typer.echo(f"  step     : {result.step}")
         typer.echo(f"  expected : {result.expected}")

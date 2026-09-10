@@ -17,6 +17,7 @@ gets to make.
 
 import re
 import time
+from collections.abc import Callable
 from typing import Any
 
 from playwright.sync_api import Error as PlaywrightError
@@ -98,6 +99,7 @@ class Replay:
         attended: bool = False,
         interventions: InterventionStore | None = None,
         wait_seconds: int = 0,
+        announce: Callable[[str], None] | None = None,
     ) -> None:
         self.cap = capability
         self.surface = surface
@@ -105,6 +107,9 @@ class Replay:
         self.attended = attended
         self.interventions = interventions
         self.wait_seconds = wait_seconds
+        # A run that pauses for a person has to say so. Everything below writes to
+        # the evidence log for the record; this is the channel for the person.
+        self._announce = announce or (lambda _message: None)
         self.records: list[StepRecord] = []
         self.outputs: dict[str, str] = {}
         self.recoveries: dict[str, int] = {}
@@ -296,6 +301,20 @@ class Replay:
         self.evidence.event(
             "handed_to_human", intervention=request.id, step=step.id, file=str(path)
         )
+        self._announce(
+            "\n"
+            + "=" * 74
+            + f"\nWAITING FOR A PERSON - held at {step.id}\n"
+            + "=" * 74
+            + f"\n{reason}\n"
+            f"\n  screenshot : {request.screenshot}"
+            f"\n  request    : {path}"
+            f"\n  waiting    : up to {self.wait_seconds}s. The browser stays open.\n"
+            "\nIn another terminal, choose one:\n"
+            f"\n  finautomate resolve {request.id} --approve   # let the automation do it"
+            f"\n  finautomate resolve {request.id} --handled   # you did it yourself"
+            f"\n  finautomate resolve {request.id} --reject    # do not proceed\n"
+        )
 
         # The lease is now held by a person and the automation does nothing but
         # watch. It is watching in both senses: waiting for the decision, and
@@ -328,6 +347,7 @@ class Replay:
                 }
             )
 
+        self._announce(f"  control returned by {decided.operator or 'operator'}: {decided.status}")
         self.evidence.event(
             "control_returned",
             intervention=request.id,
@@ -350,6 +370,8 @@ class Replay:
         """Poll until a person decides, the session dies, or we run out of patience."""
         assert self.interventions is not None
         deadline = time.monotonic() + self.wait_seconds
+        baseline = self.surface.observe()
+        noticed = False
         while time.monotonic() < deadline:
             # The offer being made is control of *this* session. If the operator
             # closes the window, there is nothing left to hand back and no reason to
@@ -365,8 +387,27 @@ class Replay:
             current = self.interventions.read(intervention_id)
             if not current.open:
                 return current
+
+            # Noticing the screen has moved is not the same as deciding the step is
+            # done. Only a named operator gets to decide that, because the record of
+            # who approved an irreversible action is the point. But saying nothing
+            # while someone works in the browser, waiting for a signal we never
+            # asked for, is how this feature goes unused.
+            if not noticed and self._screen_moved(baseline):
+                noticed = True
+                self._announce(
+                    f"  ...the screen has changed. If you completed the step, run:\n"
+                    f"     finautomate resolve {intervention_id} --handled"
+                )
             time.sleep(1.0)
         return None
+
+    def _screen_moved(self, baseline: Snapshot) -> bool:
+        try:
+            now = self.surface.observe()
+        except PlaywrightError:
+            return False
+        return now.url != baseline.url or len(now.controls) != len(baseline.controls)
 
     def _session_alive(self) -> bool:
         if self.surface.page.is_closed():
