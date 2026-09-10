@@ -33,7 +33,7 @@ steps:
 - id: type_text_username
   action: type
   target:
-    description: Username field
+    description: username field
     strategies:
     - kind: anchored_role
       role: textbox
@@ -64,7 +64,7 @@ steps:
 - id: type_secret_password
   action: type
   target:
-    description: Password field
+    description: password field
     strategies:
     - kind: anchored_role
       role: textbox
@@ -154,7 +154,7 @@ steps:
 - id: select_account_type
   action: select
   target:
-    description: Account type dropdown
+    description: account type dropdown
     strategies:
     - kind: anchored_role
       role: combobox
@@ -191,7 +191,7 @@ steps:
 - id: select_funding_account
   action: select
   target:
-    description: Funding account dropdown
+    description: funding account dropdown
     strategies:
     - kind: anchored_role
       role: combobox
@@ -211,10 +211,10 @@ steps:
   risk: safe
   outcomes:
     option_not_found: FUNDING_ACCOUNT_ID_NOT_AVAILABLE
-- id: click_open_new_account_submit
+- id: click_open_new_account_2
   action: click
   target:
-    description: Open New Account submit button
+    description: Open New Account button
     strategies:
     - kind: role_name
       role: button
@@ -262,7 +262,7 @@ steps:
 - id: read_new_account_number
   action: read
   target:
-    description: New account number link
+    description: new account number
     strategies:
     - kind: anchored_role
       role: link
@@ -297,8 +297,8 @@ outcomes:
   classification: business_outcome
   message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-10T03:21:12.970164Z'
-  run: discovery-fd4beb1676
-  model: claude-sonnet-5
+  at: '2026-09-10T03:35:27.438682Z'
+  run: discovery-5e4574a783
+  model: claude-haiku-4-5
   goal: Open a new SAVINGS account funded from account 12345, and return the new account number
-  evidence: evidence/discovery-fd4beb1676
+  evidence: evidence/discovery-5e4574a783

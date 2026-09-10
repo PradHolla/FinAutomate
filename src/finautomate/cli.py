@@ -17,7 +17,7 @@ from finautomate.artifact import (
     load_capability,
 )
 from finautomate.checkpoint import wait_for
-from finautomate.discover import Discovery
+from finautomate.discover import DEFAULT_MODEL, MODELS, Discovery
 from finautomate.evidence import Evidence
 from finautomate.locate import explain, resolve
 from finautomate.policy import Guards, Policy
@@ -55,10 +55,15 @@ def discover(
     expect_output: Annotated[
         list[str], typer.Option(help="A value the capability must return. Repeatable.")
     ] = [],  # noqa: B006
+    model: Annotated[
+        str, typer.Option(help=f"Which model drives discovery: {'|'.join(MODELS)}.")
+    ] = DEFAULT_MODEL,
     out: Annotated[Path, typer.Option(help="Where to write the capability.")] = Path("artifacts"),
     headed: Annotated[bool, typer.Option(help="Show the browser.")] = False,
 ) -> None:
     """Drive a live UI with an LLM until a goal is met, then save a capability."""
+    if model not in MODELS:
+        raise typer.BadParameter(f"--model must be one of {sorted(MODELS)}")
     settings = yaml.safe_load(config.read_text(encoding="utf-8"))
     policy = Policy.model_validate(settings["policy"])
     guards = Guards.model_validate(settings.get("guards", {}))
@@ -80,14 +85,16 @@ def discover(
                 params=params,
                 secrets=secrets,
                 expect_outputs=tuple(expect_output),
+                model=model,
             )
             capability = run.run(goal, entry, settings.get("app", "parabank"))
         finally:
             browser.close()
 
-    cost = run.tokens_in / 1e6 * 2 + run.tokens_out / 1e6 * 10
+    rate_in, rate_out = (2, 10) if model == "sonnet" else (1, 5)
+    cost = run.tokens_in / 1e6 * rate_in + run.tokens_out / 1e6 * rate_out
     typer.echo(
-        f"{run.calls} model calls, {run.tokens_in} in / {run.tokens_out} out "
+        f"{run.model}: {run.calls} calls, {run.tokens_in} in / {run.tokens_out} out "
         f"tokens, about ${cost:.3f}"
     )
     typer.echo(f"evidence: {evidence.dir}")

@@ -50,8 +50,23 @@ from finautomate.record import build_bundle
 from finautomate.surface.browser import BrowserSurface, ControlNotFoundError, OptionNotFoundError
 from finautomate.surface.models import Control, Snapshot
 
-MODEL = "claude-sonnet-5"
 SETTLE_SECONDS = 6.0
+
+# The thinking parameters are not the same across models, and the differences are
+# 400 errors rather than warnings. Verified against the API rather than remembered:
+# Haiku 4.5 rejects both adaptive thinking and `output_config.effort`, and needs an
+# explicit token budget below `max_tokens`.
+MODELS: dict[str, tuple[str, dict[str, Any]]] = {
+    "sonnet": (
+        "claude-sonnet-5",
+        {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},
+    ),
+    "haiku": (
+        "claude-haiku-4-5",
+        {"thinking": {"type": "enabled", "budget_tokens": 2048}},
+    ),
+}
+DEFAULT_MODEL = "sonnet"
 MAX_DONE_REJECTIONS = 2
 """How many times the loop will push back before giving up.
 
@@ -243,6 +258,7 @@ class Discovery:
         params: dict[str, str],
         secrets: dict[str, str],
         expect_outputs: tuple[str, ...] = (),
+        model: str = DEFAULT_MODEL,
     ) -> None:
         self.surface = surface
         self.client = client
@@ -252,6 +268,7 @@ class Discovery:
         self.params = params
         self.secrets = secrets
         self.expect_outputs = expect_outputs
+        self.model, self.model_params = MODELS[model]
         self.steps: list[Step] = []
         self.outputs: list[Output] = []
         self.used_ids: set[str] = set()
@@ -466,7 +483,7 @@ class Discovery:
 
     def _ask(self, messages: list[MessageParam]) -> list[ToolUseBlock]:
         response = self.client.messages.create(
-            model=MODEL,
+            model=self.model,
             max_tokens=4096,
             # The system prompt and tool definitions are identical on every turn and
             # get resent each time. Caching them is the single cheapest win here.
@@ -475,9 +492,8 @@ class Discovery:
             # One action per turn. The loop observes the screen between actions, so
             # a second action chosen from a stale screen would be acting blind.
             tool_choice={"type": "auto", "disable_parallel_tool_use": True},
-            thinking={"type": "adaptive"},
-            output_config={"effort": "high"},
             messages=messages,
+            **self.model_params,
         )
         self.calls += 1
         self.tokens_in += response.usage.input_tokens
@@ -530,6 +546,22 @@ class Discovery:
         )
         if decision.blocked:
             return f"REFUSED by policy: {decision.reason}"
+
+        # An irreversible step is the point of no return, so every precondition has
+        # to hold before it - not at `done`, by which time the account already
+        # exists. Found by running discovery on a smaller model: it skipped a
+        # parameter, opened an account, was told at `done` that the parameter was
+        # never used, and started the whole flow over. The recording then held both
+        # attempts, so replaying it would have opened two accounts.
+        if decision.verdict == "risky" and (unset := self._missing_params()):
+            self.evidence.event(
+                "precondition_held", step=step_number, control=description, missing=list(unset)
+            )
+            return (
+                f"Not yet. {description} is irreversible, and these parameters are "
+                f"still unset on this screen: {', '.join(unset)}. Set them first, "
+                "then do this."
+            )
 
         # A `read` step is the one place where the control's own name is the data
         # we are about to return. Peek at it first so it can be kept out of the
@@ -708,7 +740,7 @@ class Discovery:
             recorded=Recorded(
                 at=datetime.now(UTC),
                 run=self.evidence.run_id,
-                model=MODEL,
+                model=self.model,
                 goal=goal,
                 evidence=str(self.evidence.dir),
             ),
