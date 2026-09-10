@@ -1,3 +1,0 @@
-{"at": "2026-09-10T05:24:12.936+00:00", "kind": "replay_started", "capability": "open_new_savings_account_funded_from_acc", "version": 1, "attended": true, "parameters": ["account_type", "funding_account_id", "password", "username"]}
-{"at": "2026-09-10T05:24:13.027+00:00", "kind": "hard_failure", "step": "navigate", "expected": "the application to respond", "observed": "Page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:8080/parabank/index.htm", "screenshot": "evidence/replay-6ee232d779/failed-navigate.png"}
-{"at": "2026-09-10T05:24:13.027+00:00", "kind": "replay_finished", "outcome": "hard_failure", "duration_ms": 90}

@@ -1,8 +1,0 @@
-{"at": "2026-09-10T05:25:08.187+00:00", "kind": "replay_started", "capability": "open_new_savings_account_funded_from_acc", "version": 1, "attended": true, "parameters": ["account_type", "funding_account_id", "password", "username"]}
-{"at": "2026-09-10T05:25:08.722+00:00", "kind": "step", "id": "type_text_username", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
-{"at": "2026-09-10T05:25:08.750+00:00", "kind": "step", "id": "type_secret_password", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
-{"at": "2026-09-10T05:25:08.848+00:00", "kind": "step", "id": "click_log_in", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
-{"at": "2026-09-10T05:25:08.924+00:00", "kind": "step", "id": "click_open_new_account", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
-{"at": "2026-09-10T05:25:08.954+00:00", "kind": "step", "id": "select_account_type", "action": "select", "strategy": "anchored_role", "tier": 0, "fallback": false}
-{"at": "2026-09-10T05:25:08.960+00:00", "kind": "business_outcome", "outcome": "FUNDING_ACCOUNT_ID_NOT_AVAILABLE", "step": "select_funding_account", "message": "The application did not offer that choice for this customer."}
-{"at": "2026-09-10T05:25:08.960+00:00", "kind": "replay_finished", "outcome": "business_outcome", "duration_ms": 773}

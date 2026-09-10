@@ -109,6 +109,7 @@ class Replay:
         self.outputs: dict[str, str] = {}
         self.recoveries: dict[str, int] = {}
         self._skip_next = False
+        self.session_lost = False
 
     # -- the run ------------------------------------------------------------
 
@@ -309,6 +310,16 @@ class Replay:
                 self.evidence.event("human_action", **action)
 
         if decided is None:
+            if self.session_lost:
+                self.evidence.event("session_closed_during_handover", intervention=request.id)
+                return HardFailure(
+                    capability=self.cap.id,
+                    version=self.cap.version,
+                    steps=self.records,
+                    step=step.id,
+                    expected="the browser session to stay open for the operator",
+                    observed="the window was closed, so the session could not be handed back",
+                )
             self.evidence.event("handover_timed_out", intervention=request.id)
             return stopped.model_copy(
                 update={
@@ -336,14 +347,35 @@ class Replay:
         return None
 
     def _await_decision(self, intervention_id: str) -> Intervention | None:
+        """Poll until a person decides, the session dies, or we run out of patience."""
         assert self.interventions is not None
         deadline = time.monotonic() + self.wait_seconds
         while time.monotonic() < deadline:
+            # The offer being made is control of *this* session. If the operator
+            # closes the window, there is nothing left to hand back and no reason to
+            # keep waiting - so say so immediately rather than sitting out the whole
+            # timeout and failing later for a reason that looks unrelated.
+            #
+            # `is_closed()` alone is not enough: it reports a page closed through the
+            # protocol, and a window the operator quits kills the process instead, so
+            # the flag never gets set. Poking the session is what actually tells us.
+            if not self._session_alive():
+                self.session_lost = True
+                return None
             current = self.interventions.read(intervention_id)
             if not current.open:
                 return current
             time.sleep(1.0)
         return None
+
+    def _session_alive(self) -> bool:
+        if self.surface.page.is_closed():
+            return False
+        try:
+            self.surface.page.title()
+        except PlaywrightError:
+            return False
+        return True
 
     # -- recovery -----------------------------------------------------------
 
