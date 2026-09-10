@@ -143,3 +143,23 @@ def test_drift_is_reported_even_when_the_run_succeeds() -> None:
 def test_needs_human_names_the_step_it_stopped_at() -> None:
     held = NeedsHuman(capability="c", version=1, step="submit_payment", reason="irreversible")
     assert held.step == "submit_payment"
+
+
+def test_a_captured_human_action_can_be_logged(tmp_path: Path) -> None:
+    """Regression. Actions arrive as {"kind": "click", ...}, and the evidence
+    writer's first positional argument is also called `kind`. Splatting the dict
+    collided with it and crashed the run at the moment a person had just finished
+    the step - the worst possible time, because their work was already done."""
+    from finautomate.evidence import Evidence
+
+    evidence = Evidence(tmp_path, "run-1", frozenset({"hunter2"}))
+    action = {"kind": "click", "target": 'input "Open New Account"', "value": "hunter2"}
+    evidence.event(
+        "human_action",
+        did=action["kind"],
+        target=action["target"],
+        value=action["value"],
+    )
+    written = (tmp_path / "run-1" / "run.jsonl").read_text()
+    assert '"did": "click"' in written
+    assert "hunter2" not in written, "secrets must be redacted from the audit trail too"

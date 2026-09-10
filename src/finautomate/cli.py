@@ -254,7 +254,7 @@ def interventions() -> None:
         typer.echo(f"  why        : {request.reason}")
         typer.echo(f"  screenshot : {request.screenshot}")
         typer.echo(f"  controller : {request.controller}")
-    typer.echo("\nresolve with: finautomate resolve <id> --approve | --handled | --reject")
+    typer.echo("\nresolve with: uv run finautomate resolve <id> --approve | --handled | --reject")
 
 
 @app.command()

@@ -311,9 +311,9 @@ class Replay:
             f"\n  request    : {path}"
             f"\n  waiting    : up to {self.wait_seconds}s. The browser stays open.\n"
             "\nIn another terminal, choose one:\n"
-            f"\n  finautomate resolve {request.id} --approve   # let the automation do it"
-            f"\n  finautomate resolve {request.id} --handled   # you did it yourself"
-            f"\n  finautomate resolve {request.id} --reject    # do not proceed\n"
+            f"\n  uv run finautomate resolve {request.id} --approve   # let the automation do it"
+            f"\n  uv run finautomate resolve {request.id} --handled   # you did it yourself"
+            f"\n  uv run finautomate resolve {request.id} --reject    # do not proceed\n"
         )
 
         # The lease is now held by a person and the automation does nothing but
@@ -326,7 +326,12 @@ class Replay:
         if seen:
             self.interventions.record_actions(request.id, seen)
             for action in seen:
-                self.evidence.event("human_action", **action)
+                self.evidence.event(
+                    "human_action",
+                    did=action.get("kind", ""),
+                    target=action.get("target", ""),
+                    value=action.get("value", ""),
+                )
 
         if decided is None:
             if self.session_lost:
@@ -397,7 +402,7 @@ class Replay:
                 noticed = True
                 self._announce(
                     f"  ...the screen has changed. If you completed the step, run:\n"
-                    f"     finautomate resolve {intervention_id} --handled"
+                    f"     uv run finautomate resolve {intervention_id} --handled"
                 )
             time.sleep(1.0)
         return None
