@@ -138,7 +138,8 @@ def reset(
     if settled is None:
         typer.secho(f"{label} did not confirm within the timeout", fg=typer.colors.RED)
         raise typer.Exit(1)
-    typer.secho(f"{label.lower()}d - target is at a known state", fg=typer.colors.GREEN)
+    outcome = "stripped of demo data" if clean else "restored to its demo data"
+    typer.secho(f"target {outcome}", fg=typer.colors.GREEN)
 
 
 @app.command()
