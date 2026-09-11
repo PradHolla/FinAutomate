@@ -326,3 +326,58 @@ def test_no_config_outcomes_returns_the_capability_untouched(capability) -> None
     two tests above are the ones that hold the merge itself honest.
     """
     assert with_runtime_outcomes(capability, []) is capability
+
+
+def test_an_answer_beats_a_retry() -> None:
+    """Ordering, and it is the decision this method exists to make.
+
+    A screen that matches both a business outcome and a recoverable condition must
+    be read as the answer. "The loan was denied" will not change if we try again,
+    and retrying would re-submit a loan application. So `_classify` checks business
+    outcomes first. Written as a test because the two checks look interchangeable
+    and someone will one day reorder them for tidiness.
+    """
+    both = [
+        Outcome(
+            name="LOAN_DENIED",
+            classification="business_outcome",
+            message="The bank declined the loan request.",
+            detect=TextVisible(kind="text_visible", text="Denied", match="exact"),
+        ),
+        Outcome(
+            name="SESSION_EXPIRED",
+            classification="recoverable",
+            detect=TextVisible(kind="text_visible", text="Denied", match="exact"),
+            recovery=Recovery(action="restart"),
+        ),
+    ]
+    screen = Snapshot(
+        url="/parabank/requestloan.htm",
+        title="ParaBank",
+        anchors=[TextAnchor(text="Status:", doc_order=0), TextAnchor(text="Denied", doc_order=1)],
+        controls=[],
+    )
+    assert detected(both, "business_outcome", screen) is not None
+    assert detected(both, "recoverable", screen) is not None, "both really do match"
+
+    from finautomate.evidence import Evidence
+    from finautomate.replay import Replay
+
+    capability = Capability(
+        id="loan",
+        version=1,
+        title="t",
+        description="d",
+        target=Target(app="parabank", entry="/parabank/index.htm"),
+        steps=[Step(id="apply", action="navigate")],
+        success=TextVisible(kind="text_visible", text="Approved"),
+        outcomes=both,
+    )
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        engine = Replay(capability, None, Evidence(Path(tmp), "r", frozenset()))  # type: ignore[arg-type]
+        answer = engine._classify(capability.steps[0], screen)
+
+    assert isinstance(answer, BusinessOutcome), f"expected the answer, got {type(answer).__name__}"
+    assert answer.outcome == "LOAN_DENIED"

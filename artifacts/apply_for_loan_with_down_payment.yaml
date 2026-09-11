@@ -1,10 +1,11 @@
 schema_version: 1
-id: open_new_account_funded_from_account
+id: apply_for_loan_with_down_payment
 version: 1
-title: Open a new {{account_type}} account funded from account {{funding_account_id}}, and
-  return the new account number
-description: Successfully opened a new {{account_type}} account funded from account {{funding_account_id}}.
-  The new account number is {{new_account_number}}.
+title: Apply for a loan of {{loan_amount}} with a down payment of {{down_payment}} from account
+  {{funding_account_id}}, and ...
+description: Loan application successfully completed. Loan of ${{loan_amount}} with ${{down_payment}}
+  down payment from account {{funding_account_id}} has been approved. New loan account number
+  is {{new_loan_account_number}}.
 target:
   app: parabank
   surface: browser
@@ -14,7 +15,11 @@ inputs:
   type: string
   required: true
   secret: false
-- name: account_type
+- name: loan_amount
+  type: string
+  required: true
+  secret: false
+- name: down_payment
   type: string
   required: true
   secret: false
@@ -27,9 +32,9 @@ inputs:
   required: true
   secret: true
 outputs:
-- name: new_account_number
+- name: new_loan_account_number
   type: string
-  from_step: read_new_account_number
+  from_step: read_new_loan_account_number
 steps:
 - id: type_text_username
   action: type
@@ -185,122 +190,157 @@ steps:
         position: after
     timeout_ms: 10000
   outcomes: {}
-- id: click_open_new_account
+- id: click_request_loan
   action: click
   target:
-    description: Open New Account link
+    description: Request Loan link
     strategies:
     - kind: role_name
       role: link
-      name: Open New Account
+      name: Request Loan
       match: exact
-    - kind: anchored_role
-      role: link
-      anchor: Account Services
-      match: exact
-      position: after
-    - kind: anchored_role
-      role: link
-      anchor: Welcome
-      match: exact
-      position: after
-    - kind: anchored_role
-      role: link
-      anchor: John Smith
-      match: exact
-      position: after
   by: label
   risk: safe
   expect:
     kind: element_visible
     target:
-      description: the combobox that appeared
+      description: the textbox that appeared
       strategies:
       - kind: anchored_role
-        role: combobox
-        anchor: What type of Account would you like to open?
+        role: textbox
+        anchor: 'Loan Amount:'
         match: exact
         position: after
       - kind: anchored_role
-        role: combobox
-        anchor: Open New Account
+        role: textbox
+        anchor: Apply for a Loan
         match: exact
         position: after
       - kind: anchored_role
-        role: combobox
+        role: textbox
         anchor: Account Services
         match: exact
         position: after
       - kind: anchored_role
-        role: combobox
+        role: textbox
         anchor: Welcome
         match: exact
         position: after
       - kind: anchored_role
-        role: combobox
+        role: textbox
         anchor: John Smith
         match: exact
         position: after
       - kind: anchored_role
-        role: combobox
-        anchor: A minimum of
-        match: prefix
+        role: textbox
+        anchor: 'Down Payment:'
+        match: exact
         position: before
       - kind: field_id
-        id: type
+        id: amount
     timeout_ms: 10000
   outcomes: {}
-- id: select_account_type
+- id: type_text_loan_amount
+  action: type
+  target:
+    description: Loan Amount field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Loan Amount:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Apply for a Loan
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Account Services
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Welcome
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: John Smith
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Down Payment:'
+      match: exact
+      position: before
+    - kind: field_id
+      id: amount
+  value: '{{loan_amount}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_down_payment
+  action: type
+  target:
+    description: Down Payment field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Down Payment:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'From account #:'
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: textbox
+      anchor: © Parasoft. All rights reserved.
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Visit us at:'
+      match: exact
+      position: before
+    - kind: field_id
+      id: downPayment
+  value: '{{down_payment}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: select_from_account
   action: select
   target:
-    description: Account type dropdown
+    description: From account dropdown
     strategies:
     - kind: anchored_role
       role: combobox
-      anchor: What type of Account would you like to open?
+      anchor: 'From account #:'
       match: exact
       position: after
     - kind: anchored_role
       role: combobox
-      anchor: Open New Account
+      anchor: 'Down Payment:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: 'Loan Amount:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: Apply for a Loan
       match: exact
       position: after
     - kind: anchored_role
       role: combobox
       anchor: Account Services
       match: exact
-      position: after
-    - kind: anchored_role
-      role: combobox
-      anchor: Welcome
-      match: exact
-      position: after
-    - kind: anchored_role
-      role: combobox
-      anchor: John Smith
-      match: exact
-      position: after
-    - kind: anchored_role
-      role: combobox
-      anchor: A minimum of
-      match: prefix
-      position: before
-    - kind: field_id
-      id: type
-  value: '{{account_type}}'
-  by: label
-  risk: safe
-  outcomes:
-    option_not_found: ACCOUNT_TYPE_NOT_AVAILABLE
-- id: select_funding_account
-  action: select
-  target:
-    description: Funding account dropdown
-    strategies:
-    - kind: anchored_role
-      role: combobox
-      anchor: A minimum of
-      match: prefix
       position: after
     - kind: anchored_role
       role: combobox
@@ -319,38 +359,38 @@ steps:
   risk: safe
   outcomes:
     option_not_found: FUNDING_ACCOUNT_ID_NOT_AVAILABLE
-- id: click_open_new_account_2
+- id: click_apply_now
   action: click
   target:
-    description: Open New Account button
+    description: Apply Now button
     strategies:
     - kind: role_name
       role: button
-      name: Open New Account
+      name: Apply Now
       match: exact
     - kind: anchored_role
       role: button
-      anchor: A minimum of
-      match: prefix
-      position: after
-    - kind: anchored_role
-      role: button
-      anchor: What type of Account would you like to open?
+      anchor: 'From account #:'
       match: exact
       position: after
     - kind: anchored_role
       role: button
-      anchor: Open New Account
+      anchor: 'Down Payment:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: 'Loan Amount:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Apply for a Loan
       match: exact
       position: after
     - kind: anchored_role
       role: button
       anchor: Account Services
-      match: exact
-      position: after
-    - kind: anchored_role
-      role: button
-      anchor: Welcome
       match: exact
       position: after
     - kind: anchored_role
@@ -377,22 +417,27 @@ steps:
         position: after
       - kind: anchored_role
         role: link
-        anchor: Congratulations, your account is now open.
+        anchor: Congratulations, your loan has been approved.
         match: exact
         position: after
       - kind: anchored_role
         role: link
-        anchor: Account Opened!
+        anchor: Approved
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: link
+        anchor: 'Status:'
         match: exact
         position: after
       - kind: field_id
         id: newAccountId
     timeout_ms: 10000
   outcomes: {}
-- id: read_new_account_number
+- id: read_new_loan_account_number
   action: read
   target:
-    description: New account number
+    description: New loan account number
     strategies:
     - kind: anchored_role
       role: link
@@ -401,12 +446,17 @@ steps:
       position: after
     - kind: anchored_role
       role: link
-      anchor: Congratulations, your account is now open.
+      anchor: Congratulations, your loan has been approved.
       match: exact
       position: after
     - kind: anchored_role
       role: link
-      anchor: Account Opened!
+      anchor: Approved
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: link
+      anchor: 'Status:'
       match: exact
       position: after
     - kind: field_id
@@ -426,27 +476,30 @@ success:
       position: after
     - kind: anchored_role
       role: link
-      anchor: Congratulations, your account is now open.
+      anchor: Congratulations, your loan has been approved.
       match: exact
       position: after
     - kind: anchored_role
       role: link
-      anchor: Account Opened!
+      anchor: Approved
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: link
+      anchor: 'Status:'
       match: exact
       position: after
     - kind: field_id
       id: newAccountId
   timeout_ms: 10000
 outcomes:
-- name: ACCOUNT_TYPE_NOT_AVAILABLE
-  classification: business_outcome
-  message: The application did not offer that choice for this customer.
 - name: FUNDING_ACCOUNT_ID_NOT_AVAILABLE
   classification: business_outcome
   message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-11T17:23:20.369966Z'
-  run: discovery-0ee77cc1c6
+  at: '2026-09-11T17:24:00.201737Z'
+  run: discovery-f33009db49
   model: claude-haiku-4-5
-  goal: Open a new SAVINGS account funded from account 12345, and return the new account number
-  evidence: evidence/discovery-0ee77cc1c6
+  goal: Apply for a loan of 1000 with a down payment of 900 from account 12345, and return
+    the new loan account number
+  evidence: evidence/discovery-f33009db49

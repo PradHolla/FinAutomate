@@ -83,6 +83,43 @@ that opens the account, because that step is marked irreversible.
 
 Add `--dry-run` to print the plan without opening a browser.
 
+### A second capability
+
+The same engine, a different job. Nothing about it is special-cased:
+
+```bash
+uv run finautomate reset
+uv run finautomate replay artifacts/apply_for_loan_with_down_payment.yaml \
+  --param username=john --secret password=demo \
+  --param loan_amount=1000 --param down_payment=900 \
+  --param funding_account_id=12345 --attended
+```
+
+That one is approved, and returns the new loan account number. Ask for more than the
+customer can cover and the bank refuses:
+
+```bash
+uv run finautomate reset
+uv run finautomate replay artifacts/apply_for_loan_with_down_payment.yaml \
+  --param username=john --secret password=demo \
+  --param loan_amount=900000 --param down_payment=1 \
+  --param funding_account_id=12345 --attended
+```
+
+```
+BUSINESS_OUTCOME
+  LOAN_DENIED: The bank declined the loan request.
+```
+
+Exit 2, not exit 1. The application considered the request and answered. That is a
+result the caller asked for, not a failure to page anyone about - and it is the
+distinction this system exists to get right.
+
+This capability produces **two different** business outcomes, and they are not the
+same thing. Pass `--param funding_account_id=99999`, an account the customer does not
+own, and you get `FUNDING_ACCOUNT_ID_NOT_AVAILABLE` - the caller got it wrong. The
+refusal above is the bank weighing an application and declining it. Both are answers.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -212,18 +249,18 @@ locator to get there:
 
 ```
   type_text_username               type     [2] anchored_role  <- fallback
-  type_secret_password             type     [1] field_name  <- fallback
+  type_secret_password             type     [1] anchored_role  <- fallback
   click_log_in                     click    [4] anchored_role  <- fallback
   click_open_new_account           click    [2] anchored_role  <- fallback
   select_account_type              select   [3] anchored_role  <- fallback
-  select_funding_account           select   [2] field_id  <- fallback
-  click_open_new_account_2         click    [6] anchored_role  <- fallback
+  select_funding_account           select   [1] anchored_role  <- fallback
+  click_open_new_account_2         click    [5] anchored_role  <- fallback
   read_new_account_number          read     [3] field_id  <- fallback
 
-SUCCESS in 587ms
+SUCCESS in 591ms
   new_account_number = '13566'
   drift warning: 8 of 8 steps needed a fallback locator
-  evidence : evidence/replay-3a70c80f84
+  evidence : evidence/replay-9ba9c82d18
 ```
 
 Every step, including the irreversible one, found its control by a rung nobody

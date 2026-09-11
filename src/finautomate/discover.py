@@ -309,6 +309,11 @@ def _new_text(before: Snapshot, after: Snapshot) -> Checkpoint | None:
 
 
 SLUG_CHARS = 40
+TRAILING_FILLER = frozenset({"from", "for", "with", "into", "by"})
+"""Words a name must not end on. Fine in the middle, dangling at the end.
+
+Deliberately short. "in" and "at" belong here by the same logic and are excluded
+anyway, because dropping them turns the Log In button into `click_log`."""
 
 
 def _slug(text: str, action: str) -> str:
@@ -345,6 +350,13 @@ def _slug(text: str, action: str) -> str:
         if len("_".join([*kept, word])) > SLUG_CHARS:
             break
         kept.append(word)
+
+    # A cut that happens to land after a preposition leaves the name dangling -
+    # "apply_for_loan_with_down_payment_from" reads like it was truncated by accident
+    # rather than shortened on purpose. Drop them back off the end.
+    while kept and kept[-1] in TRAILING_FILLER:
+        kept.pop()
+
     return f"{action}_{'_'.join(kept) or action}".strip("_")
 
 

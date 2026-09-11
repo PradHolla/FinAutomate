@@ -1,0 +1,10 @@
+{"at": "2026-09-11T17:25:36.118+00:00", "kind": "replay_started", "capability": "open_new_account_funded_from_account", "version": 1, "attended": true, "parameters": ["account_type", "funding_account_id", "password", "username"]}
+{"at": "2026-09-11T17:25:36.176+00:00", "kind": "step", "id": "type_text_username", "action": "type", "strategy": "anchored_role", "tier": 2, "fallback": true}
+{"at": "2026-09-11T17:25:36.200+00:00", "kind": "step", "id": "type_secret_password", "action": "type", "strategy": "anchored_role", "tier": 1, "fallback": true}
+{"at": "2026-09-11T17:25:36.286+00:00", "kind": "step", "id": "click_log_in", "action": "click", "strategy": "anchored_role", "tier": 4, "fallback": true}
+{"at": "2026-09-11T17:25:36.354+00:00", "kind": "step", "id": "click_open_new_account", "action": "click", "strategy": "anchored_role", "tier": 2, "fallback": true}
+{"at": "2026-09-11T17:25:36.382+00:00", "kind": "step", "id": "select_account_type", "action": "select", "strategy": "anchored_role", "tier": 3, "fallback": true}
+{"at": "2026-09-11T17:25:36.395+00:00", "kind": "step", "id": "select_funding_account", "action": "select", "strategy": "anchored_role", "tier": 1, "fallback": true}
+{"at": "2026-09-11T17:25:36.424+00:00", "kind": "step", "id": "click_open_new_account_2", "action": "click", "strategy": "anchored_role", "tier": 5, "fallback": true}
+{"at": "2026-09-11T17:25:36.705+00:00", "kind": "step", "id": "read_new_account_number", "action": "read", "strategy": "field_id", "tier": 3, "fallback": true}
+{"at": "2026-09-11T17:25:36.709+00:00", "kind": "replay_finished", "outcome": "success", "duration_ms": 591}

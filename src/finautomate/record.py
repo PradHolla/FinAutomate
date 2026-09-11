@@ -111,25 +111,60 @@ def _has_digit(text: str) -> bool:
 
 
 def _anchored(control: Control, snapshot: Snapshot) -> list[Strategy]:
-    """Anchor to the nearest text above the control, nearest first."""
-    preceding = sorted(
+    """Anchor to nearby text: first the text above the control, then the text below.
+
+    Above comes first because that is how forms are written - the label sits over the
+    field, so "the textbox after the word Username" is the strategy a person would
+    describe.
+
+    Below is the fallback, and it is not symmetric decoration. A control that is the
+    *last* of its role before the next piece of text cannot be reached from above at
+    all: "the link after X" resolves to the first link after X, which is some other
+    link. The nav menu's bottom entry hit exactly this and recorded with a single
+    strategy. Anchoring from below gives it somewhere to fall.
+    """
+    out: list[Strategy] = []
+    above = sorted(
         (a for a in snapshot.anchors if a.doc_order < control.doc_order),
         key=lambda a: -a.doc_order,
     )[:MAX_ANCHORS]
+    below = sorted(
+        (a for a in snapshot.anchors if a.doc_order > control.doc_order),
+        key=lambda a: a.doc_order,
+    )[:MAX_ANCHORS]
 
-    out: list[Strategy] = []
-    for anchor in preceding:
-        # A shortened prefix is offered before the full text, and only survives if
-        # it still picks out this one control. The reason is concrete: one real
-        # anchor in the target app reads "A minimum of $100.00 must be deposited",
-        # and that figure is an administrator setting. Matching the whole sentence
-        # works today and breaks the day an institution changes the number.
-        stable = _prefix_before_first_digit(anchor.text)
-        if stable:
-            out.append(
-                AnchoredRole(kind="anchored_role", role=control.role, anchor=stable, match="prefix")
-            )
-        out.append(AnchoredRole(kind="anchored_role", role=control.role, anchor=anchor.text))
+    for anchors, position in ((above, "after"), (below, "before")):
+        for anchor in anchors:
+            # A shortened prefix is offered before the full text, and only survives
+            # if it still picks out this one control. The reason is concrete: one
+            # real anchor in the target app reads "A minimum of $100.00 must be
+            # deposited", and that figure is an administrator setting. Matching the
+            # whole sentence works today and breaks the day it changes.
+            stable = _prefix_before_first_digit(anchor.text)
+            if stable:
+                out.append(
+                    AnchoredRole(
+                        kind="anchored_role",
+                        role=control.role,
+                        anchor=stable,
+                        match="prefix",
+                        position=position,  # type: ignore[arg-type]
+                    )
+                )
+            # Never the full text when it carries a digit - only the digit-free
+            # prefix above, if there was a usable one. The same rule already applied
+            # to a control's own text and it belongs here too. A real recording
+            # anchored a checkpoint to "09-11-2026", the day it was made, which
+            # matches on exactly one day of the application's life.
+            if not _has_digit(anchor.text):
+                out.append(
+                    AnchoredRole(
+                        kind="anchored_role",
+                        role=control.role,
+                        anchor=anchor.text,
+                        position=position,  # type: ignore[arg-type]
+                    )
+                )
     return out
 
 

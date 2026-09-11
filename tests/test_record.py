@@ -171,18 +171,31 @@ def test_that_prefix_still_works_when_the_setting_changes(
     assert outcome.strategy_index == 0, "the prefix anchor should still be first choice"
 
 
-def test_short_or_absent_prefix_is_not_proposed() -> None:
-    """A two-word anchor truncated before a digit would match half the page. The
-    verification step would reject it, but do not waste a slot proposing it."""
+def test_a_control_addressable_only_by_run_specific_text_is_not_recorded() -> None:
+    """A nameless field whose only nearby text is "Acct 12345".
+
+    Every way of finding it embeds one customer's account number: the full anchor
+    only matches that customer, and the prefix before the digit is "Acct", four
+    characters that would match half the page. So there is no honest locator, and
+    the recorder says so rather than writing one that works exactly once.
+
+    Refusing here is the point. An artifact that validates and only ever replays for
+    the customer it was recorded from is worse than no artifact.
+    """
     page = Snapshot(
         url="/x",
         title="x",
         anchors=[TextAnchor(text="Acct 12345", doc_order=0)],
         controls=[ctl("a1", "textbox", 1)],
     )
-    bundle = build_bundle(page.control("a1"), page, "x")
+    assert build_bundle(page.control("a1"), page, "x") is None
+
+    # Give the same field a form name and it becomes recordable again - on the
+    # attribute, with no anchor at all.
+    named = page.model_copy(update={"controls": [ctl("a1", "textbox", 1, field_name="acctId")]})
+    bundle = build_bundle(named.control("a1"), named, "x")
     assert bundle is not None
-    assert all(s.anchor != "Acct" for s in bundle.strategies if isinstance(s, AnchoredRole))
+    assert [s.kind for s in bundle.strategies] == ["field_name"]
 
 
 # -- ambiguity is rejected at record time -----------------------------------
@@ -428,3 +441,86 @@ def test_a_capability_is_not_named_after_one_run_s_parameter_values() -> None:
 def test_a_step_id_still_reads_like_the_control_it_touches() -> None:
     assert _slug("Open New Account button", "click") == "click_open_new_account"
     assert _slug("Username field", "type_text") == "type_text_username"
+
+
+def test_a_control_below_its_only_text_can_still_be_anchored() -> None:
+    """Anchoring from below, and why it is not symmetric decoration.
+
+    A control that is the last of its role before the next piece of text cannot be
+    reached from above: "the link after Account Services" resolves to the *first*
+    link after it, which is a different link. Found in a real recording - the bottom
+    entry of the nav menu recorded with a single strategy and no fallback.
+    """
+    page = Snapshot(
+        url="/parabank/overview.htm",
+        title="ParaBank",
+        anchors=[
+            TextAnchor(text="Account Services", doc_order=0),
+            TextAnchor(text="Accounts Overview", doc_order=4),
+        ],
+        controls=[
+            ctl("n1", "link", 1, name="Open New Account", text="Open New Account"),
+            ctl("n2", "link", 2, name="Transfer Funds", text="Transfer Funds"),
+            ctl("n3", "link", 3, name="Log Out", text="Log Out"),
+        ],
+    )
+    last = next(c for c in page.controls if c.name == "Log Out")
+    bundle = build_bundle(last, page, "the Log Out link")
+    assert bundle is not None
+
+    positions = {s.position for s in bundle.strategies if isinstance(s, AnchoredRole)}
+    assert "before" in positions, "the only way to anchor the last control of its role"
+    assert len(bundle.strategies) > 1, "it had exactly one strategy before this"
+
+    first = next(c for c in page.controls if c.name == "Open New Account")
+    from_above = build_bundle(first, page, "the first link")
+    assert from_above is not None
+    assert any(
+        isinstance(s, AnchoredRole) and s.position == "after" for s in from_above.strategies
+    ), "a control below its label is still anchored from above, which reads more naturally"
+
+
+def test_a_date_never_becomes_an_anchor() -> None:
+    """From a real recording: a checkpoint anchored to "09-11-2026", the day it was
+    made. It matches on exactly one day of the application's life and is dead weight
+    on every other. The digit rule already covered a control's own text; anchors had
+    been missed."""
+    page = Snapshot(
+        url="/parabank/requestloan.htm",
+        title="ParaBank",
+        anchors=[
+            TextAnchor(text="Loan Provider:", doc_order=0),
+            TextAnchor(text="09-11-2026", doc_order=1),
+            TextAnchor(text="Your new account number:", doc_order=2),
+        ],
+        controls=[ctl("a1", "link", 3, name="13677", field_id="newAccountId", text="13677")],
+    )
+    bundle = build_bundle(page.controls[0], page, "the new account link")
+    assert bundle is not None
+
+    anchors = [s.anchor for s in bundle.strategies if isinstance(s, AnchoredRole)]
+    assert "09-11-2026" not in anchors
+    assert not any(any(ch.isdigit() for ch in a) for a in anchors), anchors
+    assert "Your new account number:" in anchors, "digit-free anchors are still recorded"
+
+
+def test_a_configurable_figure_survives_only_as_its_prefix() -> None:
+    """The target's funding dropdown is anchored by "A minimum of $100.00 must be
+    deposited...". That figure is an administrator setting. The prefix before it is
+    recorded; the full sentence is not, because it works today and breaks the day an
+    institution changes the number."""
+    page = Snapshot(
+        url="/parabank/openaccount.htm",
+        title="ParaBank",
+        anchors=[
+            TextAnchor(
+                text="A minimum of $100.00 must be deposited into this account.", doc_order=0
+            )
+        ],
+        controls=[ctl("s1", "combobox", 1, field_id="fromAccountId")],
+    )
+    bundle = build_bundle(page.controls[0], page, "the funding dropdown")
+    assert bundle is not None
+    anchors = [s.anchor for s in bundle.strategies if isinstance(s, AnchoredRole)]
+    assert "A minimum of" in anchors
+    assert not any("$100.00" in a for a in anchors)

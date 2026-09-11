@@ -254,8 +254,8 @@ class Replay:
         found = resolve(step.target, snapshot)
 
         if found.control is None:
-            if (jump := self._try_recover(step, snapshot)) is not None:
-                return jump
+            if (answer := self._classify(step, snapshot)) is not None:
+                return answer
             return self._fail(
                 step.id,
                 expected=step.target.description,
@@ -299,21 +299,37 @@ class Replay:
             fallback=found.used_fallback,
         )
 
-        if step.expect is not None and wait_for(self.surface, step.expect) is None:
-            # The other way a declared condition arrives. Recovery used to be
-            # consulted only when a control could not be found, which sounds like
-            # the same thing and is not: in this flow every navigation is followed
-            # by a checkpoint, so an expired session always surfaces as "the
-            # confirmation never appeared" and was reported as a hard failure. The
-            # fault proxy is what made that visible.
-            after = self.surface.observe()
-            if (jump := self._try_recover(step, after)) is not None:
-                return jump
-            return self._fail(
-                step.id,
-                expected=f"after this step: {self._describe(step.expect)}",
-                observed=self._diagnose(after, "it never appeared before the timeout"),
-            )
+        if step.expect is not None:
+            settled = wait_for(self.surface, step.expect)
+            after = settled if settled is not None else self.surface.observe()
+
+            # Checked whether or not the checkpoint held, and that is the point.
+            # A checkpoint asks "did the thing I expected appear?"; a declared
+            # outcome asks "what did the application say?". The second outranks the
+            # first, because a checkpoint can be satisfied by the wrong screen.
+            #
+            # This is not hypothetical. The loan capability's checkpoint had, as its
+            # fourth rung, "the link after the text Status:" - correct on the screen
+            # it was recorded from, and also present on the refusal screen, where it
+            # matched a navigation link instead. The run reported success and
+            # returned "Home" as a loan account number. The recorder could not have
+            # known: it only ever saw the approved page.
+            if (declared := detected(self.cap.outcomes, "business_outcome", after)) is not None:
+                return self._business(declared.name, step.id)
+
+            if settled is None:
+                # A checkpoint that never held is the other way a declared condition
+                # arrives. Recovery used to be consulted only when a control could
+                # not be found, which sounds like the same thing and is not: every
+                # navigation in this flow is followed by a checkpoint, so an expired
+                # session always surfaced here and was filed as a hard failure.
+                if (jump := self._try_recover(step, after)) is not None:
+                    return jump
+                return self._fail(
+                    step.id,
+                    expected=f"after this step: {self._describe(step.expect)}",
+                    observed=self._diagnose(after, "it never appeared before the timeout"),
+                )
         return None
 
     def _act(self, step: Step, ref: str, bound: dict[str, str | SecretStr]) -> None:
@@ -486,6 +502,22 @@ class Replay:
         return True
 
     # -- recovery -----------------------------------------------------------
+
+    def _classify(self, step: Step, snapshot: Snapshot) -> Result | Recovery | None:
+        """What the screen says about why this step could not proceed.
+
+        A business outcome first, then a recoverable condition, then nothing - and
+        that order is the decision, not an accident.
+
+        A business outcome is the application's final answer. "The loan was denied"
+        is a result the caller asked for, and it is not going to change if we try
+        again. Checking recovery first would let a transient-looking detector win
+        over a definitive answer, and the retry would re-submit a loan application.
+        Answers beat retries.
+        """
+        if (answer := detected(self.cap.outcomes, "business_outcome", snapshot)) is not None:
+            return self._business(answer.name, step.id)
+        return self._try_recover(step, snapshot)
 
     def _try_recover(self, step: Step, snapshot: Snapshot) -> Recovery | None:
         """Only conditions the capability declared, and only as often as it allows."""

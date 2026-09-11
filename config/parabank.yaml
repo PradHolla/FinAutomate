@@ -83,3 +83,23 @@ outcomes:
       kind: text_visible
       text: An internal error has occurred
       timeout_ms: 1000
+
+  - name: LOAN_DENIED
+    classification: business_outcome
+    message: The bank declined the loan request.
+    # The bank considered the application and said no. That is an answer the caller
+    # asked for, not a failure to report - exit 2, not exit 1.
+    #
+    # Detected on the status field, not on the message. The application has four
+    # different refusal wordings depending on which of funds and down payment fell
+    # short, and matching one of them would work until the day it picked another.
+    # The status is one word either way: Approved, or Denied.
+    #
+    # We can report that it was refused, not why. The reason is plain text in a
+    # table cell, and a `read` step can only address a form control - see the Cuts
+    # section of REPORT.md.
+    detect:
+      kind: text_visible
+      text: Denied
+      match: exact
+      timeout_ms: 1000
