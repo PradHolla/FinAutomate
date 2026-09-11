@@ -260,8 +260,18 @@ hard_failure      stop and report enough to debug it
 
 
 class Recovery(Frozen):
-    action: Literal["restart_from"]
-    step: str
+    action: Literal["restart"]
+    """Go back to the entry point and run the flow again from its first step.
+
+    There used to be a `restart_from: <step id>` here, and dropping it made the
+    design better rather than worse. Two reasons. A runtime condition like an
+    expired session belongs to the *application*, not to one recorded flow, so it is
+    declared in tenant config - and config cannot name a step id, because every
+    capability names its steps differently. And for the conditions that actually
+    occur, resuming from the middle is wrong anyway: once a session is gone, every
+    screen after the login page is gone with it.
+    """
+
     max_attempts: int = Field(default=1, ge=1, le=3)
     """Bounded on purpose. Unbounded retry is how automation quietly hammers a
     production system."""
@@ -282,6 +292,14 @@ class Outcome(Frozen):
             raise ValueError(
                 f"outcome {self.name!r} declares recovery but is {self.classification!r}"
             )
+        # The other direction, which is the one that bites: "recoverable" with no
+        # recovery block is a promise the engine cannot keep. It would be detected,
+        # classified as retryable, and then silently fall through to a hard failure
+        # with no explanation. Rejecting it here means the engine never has to ask.
+        if self.classification == "recoverable" and not self.recovery:
+            raise ValueError(f"outcome {self.name!r} is recoverable but declares no recovery")
+        if self.classification == "recoverable" and self.detect is None:
+            raise ValueError(f"outcome {self.name!r} is recoverable but declares no detector")
         return self
 
 
@@ -372,11 +390,8 @@ class Capability(Frozen):
                 if param not in known_inputs:
                     raise ValueError(f"step {step.id!r} uses {{{{{param}}}}} but no such input")
 
-        for outcome in self.outcomes:
-            if outcome.recovery and outcome.recovery.step not in known_steps:
-                raise ValueError(
-                    f"outcome {outcome.name!r} recovers to unknown step {outcome.recovery.step!r}"
-                )
+        # Recovery used to name the step to resume from, and this checked the name
+        # existed. It restarts the whole flow now, so there is no name to get wrong.
         return self
 
     @model_validator(mode="after")

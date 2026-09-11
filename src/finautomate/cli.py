@@ -1,5 +1,6 @@
 """Command line entry point."""
 
+import threading
 import uuid
 from pathlib import Path
 from typing import Annotated, Any
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 
 from finautomate.artifact import (
     LocatorBundle,
+    Outcome,
     RoleName,
     TextVisible,
     dump_capability,
@@ -20,10 +22,11 @@ from finautomate.artifact import (
 from finautomate.checkpoint import wait_for
 from finautomate.discover import DEFAULT_MODEL, MODELS, Discovery
 from finautomate.evidence import Evidence
+from finautomate.faultproxy import load_faults, serve
 from finautomate.locate import explain
 from finautomate.locate import resolve as resolve_locator
 from finautomate.policy import Guards, Policy
-from finautomate.replay import ParameterError, Replay, dry_run
+from finautomate.replay import ParameterError, Replay, dry_run, with_runtime_outcomes
 from finautomate.result import EXIT_CODES
 from finautomate.session import InterventionStore, Status
 from finautomate.surface.browser import BrowserSurface
@@ -180,6 +183,13 @@ def replay(
         list[str], typer.Option(help="name=value for a secret input. Repeatable.")
     ] = [],  # noqa: B006
     config: Annotated[Path, typer.Option()] = Path("config/parabank.yaml"),
+    base_url: Annotated[
+        str,
+        typer.Option(
+            help="Override the config's base URL. Used to route a run through the "
+            "fault proxy without inventing a tenant that does not exist.",
+        ),
+    ] = "",
     attended: Annotated[
         bool, typer.Option(help="A person is watching, so risky steps may run.")
     ] = False,
@@ -214,6 +224,11 @@ def replay(
         return
 
     settings = yaml.safe_load(config.read_text(encoding="utf-8"))
+    # The application's own runtime conditions - a session that expires, an error
+    # page - come from tenant config, because no recording will ever contain them.
+    capability = with_runtime_outcomes(
+        capability, [Outcome.model_validate(o) for o in settings.get("outcomes", [])]
+    )
     run_id = f"replay-{uuid.uuid4().hex[:10]}"
     evidence = Evidence(Path("evidence"), run_id, frozenset(_pairs(secret, "--secret").values()))
 
@@ -222,7 +237,7 @@ def replay(
         try:
             engine = Replay(
                 capability,
-                BrowserSurface(browser.new_page(), settings["base_url"]),
+                BrowserSurface(browser.new_page(), base_url or settings["base_url"]),
                 evidence,
                 attended=attended,
                 interventions=InterventionStore() if wait_for_human else None,
@@ -238,6 +253,34 @@ def replay(
 
     _report(result)
     raise typer.Exit(EXIT_CODES[result.kind])
+
+
+@app.command()
+def proxy(
+    rules: Annotated[
+        Path,
+        typer.Option(help="Which faults to inject.", exists=True, dir_okay=False, readable=True),
+    ],
+    port: Annotated[int, typer.Option(help="Port to listen on.")] = 8888,
+) -> None:
+    """Run the fault-injection proxy in front of the target application.
+
+    A test instrument. Point a tenant config's `base_url` at this port and the
+    system under test does not know anything changed - which is the point, because
+    a driver that can lie to itself is not worth testing.
+    """
+    faults = load_faults(rules)
+    server = serve(faults, port, typer.echo)
+    typer.secho(f"proxying http://localhost:{port} -> {faults.upstream}", fg=typer.colors.GREEN)
+    for rule in faults.rules:
+        typer.echo(f"  {'once ' if rule.once else 'every'}  {rule.name}")
+    typer.echo("ctrl-c to stop")
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        typer.echo("\nstopped")
+    finally:
+        server.shutdown()
 
 
 @app.command()
@@ -334,8 +377,12 @@ def _report(result: Any) -> None:
         typer.echo(f"  observed : {result.observed}")
         typer.echo(f"  screenshot: {result.screenshot}")
     if drifting := result.drifting_steps:
+        # A count, not the list. Every step above already carries its own "<- fallback"
+        # marker, so printing the names again buried the one number that matters.
         typer.secho(
-            f"  drift warning: {drifting} needed a fallback locator", fg=typer.colors.YELLOW
+            f"  drift warning: {len(drifting)} of {len(result.steps)} steps needed a "
+            "fallback locator",
+            fg=typer.colors.YELLOW,
         )
     typer.echo(f"  evidence : {result.evidence}")
 

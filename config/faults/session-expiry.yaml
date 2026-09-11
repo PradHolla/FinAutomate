@@ -1,0 +1,17 @@
+# Kill the session once, mid flow.
+#
+# Stripping the cookie on the way up means the application sees a stranger. It
+# answers the way it answers any stranger asking for a signed-in page, which is
+# what an expired session actually looks like - there is no special "expired" page
+# to fake. `once: true` is the point: the fault fires a single time, so a working
+# recovery finishes the job and a broken one is obvious.
+
+upstream: http://localhost:8080
+
+rules:
+  - name: expire the session on the way to the new-account form
+    when:
+      path_contains: /parabank/openaccount.htm
+    once: true
+    then:
+      drop_session: true

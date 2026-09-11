@@ -39,3 +39,47 @@ guards:
   max_steps: 25
   max_seconds: 300
   max_tokens_total: 200000
+
+# Runtime conditions this application produces, and what replay should do about
+# them. Declared here rather than in a capability for two reasons.
+#
+# A discovery run can only record what it saw, and nothing goes wrong on a healthy
+# app - so no recording will ever contain these. And they are facts about the
+# application, not about one flow through it: every capability recorded against
+# ParaBank needs the same clauses, and a second institution running the same
+# product can reasonably answer differently.
+#
+# A capability that declares a name itself keeps its own version.
+outcomes:
+  - name: SESSION_EXPIRED
+    classification: recoverable
+    message: The session ended mid-flow and had to be re-established.
+    # When the session dies, ParaBank serves its error page at whatever URL was
+    # asked for - and that page still carries the login panel in the left column.
+    # The address bar looks right either way, so the only reliable signal is a
+    # login field being on screen at a point where it should not be.
+    detect:
+      kind: element_visible
+      target:
+        description: the login form appearing mid-flow
+        strategies:
+          - kind: anchored_role
+            role: textbox
+            anchor: Username
+            position: after
+      timeout_ms: 1000
+    recovery:
+      action: restart
+      max_attempts: 1
+
+  - name: APP_ERROR
+    classification: hard_failure
+    message: The application showed its internal error page.
+    # Listed after SESSION_EXPIRED on purpose. The two render the same page, so
+    # nothing can tell them apart by looking. Preferring the recoverable one and
+    # bounding it means a real outage retries once and is then reported as the hard
+    # failure it always was.
+    detect:
+      kind: text_visible
+      text: An internal error has occurred
+      timeout_ms: 1000

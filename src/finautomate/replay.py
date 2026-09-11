@@ -17,13 +17,13 @@ gets to make.
 
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from playwright.sync_api import Error as PlaywrightError
 from pydantic import SecretStr
 
-from finautomate.artifact import Capability, Recovery, Step
+from finautomate.artifact import Capability, Classification, Outcome, Recovery, Step
 from finautomate.checkpoint import satisfied, wait_for
 from finautomate.evidence import Evidence
 from finautomate.handover import start_watching
@@ -41,6 +41,53 @@ from finautomate.surface.browser import BrowserSurface, ControlNotFoundError, Op
 from finautomate.surface.models import Snapshot
 
 PARAM = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def detected(
+    outcomes: Sequence[Outcome], classification: Classification, snapshot: Snapshot
+) -> Outcome | None:
+    """The first declared outcome of this class whose detector holds on this screen.
+
+    Pure, so error classification can be tested against a handmade snapshot in
+    milliseconds - it is the part of the engine most worth being sure about.
+
+    First-declared wins, and that ordering is the artifact's decision to make. In
+    this application an expired session and a genuine server error render the same
+    page, so nothing can tell them apart by looking. The capability lists the
+    recoverable one first and bounds its retries: try once, and if the condition is
+    not actually transient the bound turns it into the hard failure it always was.
+    """
+    for declared in outcomes:
+        if declared.classification != classification or declared.detect is None:
+            continue
+        if satisfied(declared.detect, snapshot):
+            return declared
+    return None
+
+
+def with_runtime_outcomes(capability: Capability, declared: Sequence[Outcome]) -> Capability:
+    """Add the target application's runtime conditions to a recorded capability.
+
+    A discovery run can only write down what it saw, and on a healthy application
+    nothing goes wrong - so no recording will ever declare a session timeout or an
+    error page. Asking the model to imagine them instead would turn a guess into a
+    retry policy pointed at a bank's systems, which is the opposite of the rule this
+    system is built on: people and config decide risk, the model does not.
+
+    So they come from tenant config, and that turns out to be where they belonged
+    anyway. "This app's session dies after fifteen minutes" is a fact about the
+    application, not about one flow through it - every capability recorded against
+    it needs the same clause, and two institutions running the same product can
+    reasonably answer differently.
+
+    The capability wins any name it already declares. What it recorded about its own
+    screens is more specific than a blanket rule about the app.
+    """
+    known = {o.name for o in capability.outcomes}
+    extra = [o for o in declared if o.name not in known]
+    if not extra:
+        return capability
+    return capability.model_copy(update={"outcomes": [*capability.outcomes, *extra]})
 
 
 class ParameterError(ValueError):
@@ -136,7 +183,13 @@ class Replay:
                 step = self.cap.steps[index]
                 outcome = self._step(step, bound)
                 if isinstance(outcome, Recovery):
-                    index = self._index_of(outcome.step)
+                    # Back to the entry point, not just back to step zero. The old
+                    # version jumped to the first step without reloading, and only
+                    # worked because this application happens to leave a login form
+                    # on its error page. Going through the front door works whatever
+                    # the application decided to show.
+                    self.surface.navigate(self.cap.target.entry)
+                    index = 0
                     continue
                 if outcome is not None:
                     return self._finish(outcome, started)
@@ -206,7 +259,7 @@ class Replay:
             return self._fail(
                 step.id,
                 expected=step.target.description,
-                observed=explain(step.target, found),
+                observed=self._diagnose(snapshot, explain(step.target, found)),
             )
 
         try:
@@ -247,10 +300,19 @@ class Replay:
         )
 
         if step.expect is not None and wait_for(self.surface, step.expect) is None:
+            # The other way a declared condition arrives. Recovery used to be
+            # consulted only when a control could not be found, which sounds like
+            # the same thing and is not: in this flow every navigation is followed
+            # by a checkpoint, so an expired session always surfaces as "the
+            # confirmation never appeared" and was reported as a hard failure. The
+            # fault proxy is what made that visible.
+            after = self.surface.observe()
+            if (jump := self._try_recover(step, after)) is not None:
+                return jump
             return self._fail(
                 step.id,
                 expected=f"after this step: {self._describe(step.expect)}",
-                observed="it never appeared before the timeout",
+                observed=self._diagnose(after, "it never appeared before the timeout"),
             )
         return None
 
@@ -427,27 +489,32 @@ class Replay:
 
     def _try_recover(self, step: Step, snapshot: Snapshot) -> Recovery | None:
         """Only conditions the capability declared, and only as often as it allows."""
-        for declared in self.cap.outcomes:
-            if declared.classification != "recoverable" or declared.recovery is None:
-                continue
-            if declared.detect is None or not satisfied(declared.detect, snapshot):
-                continue
-            used = self.recoveries.get(declared.name, 0)
-            if used >= declared.recovery.max_attempts:
-                self.evidence.event("recovery_exhausted", outcome=declared.name, attempts=used)
-                return None
-            self.recoveries[declared.name] = used + 1
-            self.evidence.event(
-                "recovering", outcome=declared.name, at_step=step.id, attempt=used + 1
-            )
-            return declared.recovery
-        return None
+        declared = detected(self.cap.outcomes, "recoverable", snapshot)
+        if declared is None:
+            return None
+        assert declared.recovery is not None  # the schema rejects a recoverable without one
+        used = self.recoveries.get(declared.name, 0)
+        if used >= declared.recovery.max_attempts:
+            self.evidence.event("recovery_exhausted", outcome=declared.name, attempts=used)
+            return None
+        self.recoveries[declared.name] = used + 1
+        self.evidence.event("recovering", outcome=declared.name, at_step=step.id, attempt=used + 1)
+        return declared.recovery
 
-    def _index_of(self, step_id: str) -> int:
-        for index, step in enumerate(self.cap.steps):
-            if step.id == step_id:
-                return index
-        raise ParameterError(f"recovery points at unknown step {step_id!r}")
+    def _diagnose(self, snapshot: Snapshot, fallback: str) -> str:
+        """Let the artifact name a failure it declared how to spot.
+
+        A capability can declare an outcome classified `hard_failure` with a
+        detector - "if you see this, the application has broken". Nothing read those
+        until now, so the detector was decoration and the report said only that the
+        expected thing was missing. Naming the condition is the difference between a
+        caller filing a bug against us and filing one against the application.
+        """
+        declared = detected(self.cap.outcomes, "hard_failure", snapshot)
+        if declared is None:
+            return fallback
+        self.evidence.event("detected", outcome=declared.name)
+        return f"{declared.name}: {declared.message or 'the screen matched this condition'}"
 
     # -- results ------------------------------------------------------------
 

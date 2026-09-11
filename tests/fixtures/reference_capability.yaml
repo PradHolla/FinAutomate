@@ -1,10 +1,18 @@
-# Hand-authored reference capability.
+# Hand-authored capability, used as a test fixture.
 #
-# This file exists to prove the schema works and to be read by a human. Phase 3
-# replaces it with one produced by a real discovery run, which will also carry a
-# `recorded:` block linking to its evidence.
+# This is not a deliverable and it is deliberately not in `artifacts/`. That
+# directory holds what the discovery run produced, and nothing else - a hand-written
+# file sitting next to it would misrepresent the whole point of the system.
 #
-# Every locator below was verified against a running ParaBank in Phase 0.
+# It stays because the test suite needs a capability that does not move. The
+# recorded artifact is regenerated whenever discovery is re-run, and tests pinned to
+# a moving fixture fail for reasons that have nothing to do with the change being
+# tested. Every locator below was checked against a running ParaBank by hand.
+#
+# It also declares its own `outcomes`, including runtime ones. A capability is
+# allowed to; the target application's conditions normally come from tenant config
+# instead (see `config/parabank.yaml`), and the merge prefers whatever the
+# capability already says.
 
 schema_version: 1
 
@@ -207,12 +215,12 @@ outcomes:
             position: after
       timeout_ms: 1000
     recovery:
-      action: restart_from
-      step: fill_username
+      action: restart
       max_attempts: 1
 
   - name: APP_ERROR
     classification: hard_failure
+    message: The application showed its internal error page.
     detect:
       kind: text_visible
       text: An internal error has occurred

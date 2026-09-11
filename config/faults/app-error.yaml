@@ -1,0 +1,22 @@
+# Break the call that actually opens the account.
+#
+# The button on ParaBank's new-account page does not submit a form. It fires an
+# AJAX POST to `services_proxy/bank/createAccount`, and the page has a third hidden
+# panel - alongside the form and the confirmation - that it shows when that call
+# fails. So faulting this one request makes the *application* render its own error
+# state, rather than us pasting an error page over it. The capability declares that
+# panel's wording as its APP_ERROR detector.
+#
+# The proxy answers without forwarding, so nothing is created upstream. This one is
+# safe to run against real data.
+
+upstream: http://localhost:8080
+
+rules:
+  - name: internal error when opening the account
+    when:
+      path_contains: /parabank/services_proxy/bank/createAccount
+      method: POST
+    then:
+      status: 500
+      body: <p class="error">An internal error has occurred and has been logged.</p>

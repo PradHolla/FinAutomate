@@ -1,0 +1,54 @@
+# Tenant B: the same vendor product at a different institution.
+#
+# The only thing replay needs from a tenant is where the application lives. The
+# steps, the locators, the success condition and the outcomes all come from the
+# artifact, which is the point: one recording serves both institutions.
+#
+# The policy block is not read by replay - it is read by discovery. It sits here
+# because it is the part that genuinely does vary per institution. Policy matches
+# on what controls are *called*, and this tenant calls them different things.
+
+base_url: http://localhost:8889
+
+policy:
+  allowed_path_prefix: /parabank/
+  allowed_actions: [navigate, click, type, select, read]
+  denied_control_names:
+    - Admin Page
+    - Log Out
+  risky_control_names:
+    - Open the Account
+    - Transfer
+    - Send Payment
+
+# The same two runtime conditions, in this institution's words.
+#
+# This is the part that makes the split earn its place. The capability is byte for
+# byte the one recorded against tenant A. What differs is the wording a detector has
+# to match - Riverbend's sign-on field is labeled "User ID" - and that lives here,
+# with the tenant, rather than in a recording shared by both.
+outcomes:
+  - name: SESSION_EXPIRED
+    classification: recoverable
+    message: The session ended mid-flow and had to be re-established.
+    detect:
+      kind: element_visible
+      target:
+        description: the sign-on form appearing mid-flow
+        strategies:
+          - kind: anchored_role
+            role: textbox
+            anchor: User ID
+            position: after
+      timeout_ms: 1000
+    recovery:
+      action: restart
+      max_attempts: 1
+
+  - name: APP_ERROR
+    classification: hard_failure
+    message: The application showed its internal error page.
+    detect:
+      kind: text_visible
+      text: An internal error has occurred
+      timeout_ms: 1000

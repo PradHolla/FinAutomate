@@ -7,7 +7,15 @@ flow, discovery will too.
 
 import pytest
 
-from finautomate.artifact import AnchoredRole, FieldName, RoleName
+from finautomate.artifact import (
+    AnchoredRole,
+    ElementVisible,
+    FieldId,
+    FieldName,
+    RoleName,
+    TextVisible,
+)
+from finautomate.discover import _slug, checkpoint_for
 from finautomate.locate import resolve
 from finautomate.record import build_bundle
 from finautomate.surface.models import Control, Snapshot, TextAnchor
@@ -277,3 +285,146 @@ def test_forbidding_run_data_degrades_rather_than_breaks() -> None:
         url="/x", title="x", anchors=[], controls=[ctl("b2", "button", 0, name="SAVINGS")]
     )
     assert build_bundle(bare.control("b2"), bare, "x", frozenset({"SAVINGS"})) is None
+
+
+# -- choosing what a step should wait for -----------------------------------
+#
+# The three transitions below are the real ones, measured against a running
+# ParaBank by diffing snapshots either side of each action. They are the whole
+# argument for this part of the recorder, so they are transcribed rather than
+# invented.
+
+
+def test_a_control_with_a_vendor_id_is_preferred_over_text() -> None:
+    """Opening the new-account form. Two comboboxes and a button appear, and two of
+    them carry an element id. An id belongs to the vendor's product; the words on
+    the page belong to the institution. Only one of those survives a rebrand."""
+    before = Snapshot(
+        url="/parabank/overview.htm",
+        title="ParaBank",
+        anchors=[TextAnchor(text="Accounts Overview", doc_order=0)],
+        controls=[ctl("c1", "link", 1, name="Open New Account", text="Open New Account")],
+    )
+    after = Snapshot(
+        url="/parabank/openaccount.htm",
+        title="ParaBank",
+        anchors=[
+            TextAnchor(text="Open New Account", doc_order=0),
+            TextAnchor(text="What type of Account would you like to open?", doc_order=1),
+        ],
+        controls=[
+            ctl("c1", "link", 2, name="Open New Account", text="Open New Account"),
+            ctl("c2", "combobox", 3, field_id="type"),
+            ctl("c3", "button", 4, name="Open New Account"),
+        ],
+    )
+    checkpoint = checkpoint_for(before, after)
+    assert isinstance(checkpoint, ElementVisible)
+    assert any(isinstance(s, FieldId) for s in checkpoint.target.strategies)
+
+
+def test_the_confirmation_checkpoint_does_not_bake_in_the_account_number() -> None:
+    """The regression this whole change could have introduced.
+
+    The confirmation panel's link is *named after the account number*, and unlike an
+    action's locator there is nothing to compare it against - the step that reads
+    that number has not run yet, so it is not in the forbidden set. Recording it
+    would produce a capability that only ever confirms one run, and would put one
+    customer's account number in a file meant to serve every customer.
+    """
+    before = Snapshot(
+        url="/parabank/openaccount.htm",
+        title="ParaBank",
+        anchors=[TextAnchor(text="What type of Account would you like to open?", doc_order=0)],
+        controls=[ctl("c1", "combobox", 1, field_id="type")],
+    )
+    after = Snapshot(
+        url="/parabank/openaccount.htm",
+        title="ParaBank",
+        anchors=[
+            TextAnchor(text="Account Opened!", doc_order=0),
+            TextAnchor(text="Your new account number:", doc_order=1),
+        ],
+        controls=[ctl("a1", "link", 2, name="13677", field_id="newAccountId", text="13677")],
+    )
+    checkpoint = checkpoint_for(before, after)
+    assert isinstance(checkpoint, ElementVisible)
+    assert "13677" not in checkpoint.target.model_dump_json()
+    assert any(isinstance(s, FieldId) for s in checkpoint.target.strategies)
+
+
+def test_a_control_with_only_a_name_still_beats_text() -> None:
+    """Signing in. ParaBank's menu links carry no id and no form name, so every way
+    of finding them is the institution's own wording - there is nothing better
+    available. A ladder of wordings still degrades; a single string does not."""
+    before = Snapshot(
+        url="/parabank/index.htm",
+        title="ParaBank",
+        anchors=[TextAnchor(text="Customer Login", doc_order=0)],
+        controls=[ctl("c1", "button", 1, name="Log In")],
+    )
+    after = Snapshot(
+        url="/parabank/overview.htm",
+        title="ParaBank",
+        anchors=[
+            TextAnchor(text="Welcome", doc_order=0),
+            TextAnchor(text="Account Services", doc_order=1),
+        ],
+        controls=[ctl("m1", "link", 2, name="Accounts Overview", text="Accounts Overview")],
+    )
+    checkpoint = checkpoint_for(before, after)
+    assert isinstance(checkpoint, ElementVisible)
+    assert len(checkpoint.target.strategies) > 1, "a ladder, not one rung"
+
+
+def test_text_is_the_fallback_when_no_control_appears() -> None:
+    """Not every action puts a control on screen. A validation message arrives as
+    text and nothing else, and a text checkpoint is better than none."""
+    before = Snapshot(
+        url="/parabank/transfer.htm",
+        title="ParaBank",
+        anchors=[TextAnchor(text="Transfer Funds", doc_order=0)],
+        controls=[ctl("c1", "button", 1, name="Transfer")],
+    )
+    after = Snapshot(
+        url="/parabank/transfer.htm",
+        title="ParaBank",
+        anchors=[
+            TextAnchor(text="Transfer Funds", doc_order=0),
+            TextAnchor(text="Transfer Complete!", doc_order=1),
+        ],
+        controls=[ctl("c1", "button", 1, name="Transfer")],
+    )
+    checkpoint = checkpoint_for(before, after)
+    assert isinstance(checkpoint, TextVisible)
+    assert checkpoint.text == "Transfer Complete!"
+
+
+def test_nothing_worth_waiting_for_records_nothing() -> None:
+    """Better than a checkpoint that is always true, which would wait for nothing
+    and pass while the page was still catching up."""
+    page = Snapshot(
+        url="/parabank/index.htm",
+        title="ParaBank",
+        anchors=[TextAnchor(text="Customer Login", doc_order=0)],
+        controls=[ctl("c1", "button", 1, name="Log In")],
+    )
+    assert checkpoint_for(page, page) is None
+
+
+def test_a_capability_is_not_named_after_one_run_s_parameter_values() -> None:
+    """`open_new_savings_account` is a lie when the account type is a parameter, and
+    a name is the first thing anyone believes. Placeholders are dropped rather than
+    spelled out, and the cut lands on a word boundary."""
+    generalized = (
+        "Open a new {{account_type}} account funded from account "
+        "{{funding_account_id}}, and return the new account number"
+    )
+    assert _slug(generalized, "capability").replace("capability_", "", 1) == (
+        "open_new_account_funded_from_account"
+    )
+
+
+def test_a_step_id_still_reads_like_the_control_it_touches() -> None:
+    assert _slug("Open New Account button", "click") == "click_open_new_account"
+    assert _slug("Username field", "type_text") == "type_text_username"

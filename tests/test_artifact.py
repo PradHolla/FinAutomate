@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from finautomate.artifact import Capability, dump_capability, load_capability, referenced_params
 
-REFERENCE = Path(__file__).parent.parent / "artifacts" / "open_new_account.yaml"
+REFERENCE = Path(__file__).parent / "fixtures" / "reference_capability.yaml"
 
 
 @pytest.fixture
@@ -123,7 +123,7 @@ def test_typo_in_field_name_rejected(raw: dict[str, Any]) -> None:
 
 def test_recovery_on_non_recoverable_outcome_rejected(raw: dict[str, Any]) -> None:
     outcome = next(o for o in raw["outcomes"] if o["name"] == "APP_ERROR")
-    outcome["recovery"] = {"action": "restart_from", "step": "fill_username"}
+    outcome["recovery"] = {"action": "restart"}
     with pytest.raises(ValidationError, match="declares recovery"):
         Capability.model_validate(raw)
 

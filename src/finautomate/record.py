@@ -80,7 +80,13 @@ def _proposals(control: Control, snapshot: Snapshot) -> list[Strategy]:
     """
     out: list[Strategy] = []
 
-    if control.name:
+    # The digit rule below applies here too, and for the same reason. It was only
+    # written once, on `text`, which was enough while bundles were built for the
+    # control an action was about to touch: `forbid` already carried this run's
+    # values by then. A checkpoint is built for a control that just *appeared*, and
+    # the confirmation panel's link is named after the account number - a number
+    # nothing knows yet, because the step that reads it has not run.
+    if control.name and not _has_digit(control.name):
         out.append(RoleName(kind="role_name", role=control.role, name=control.name))
 
     out.extend(_anchored(control, snapshot))

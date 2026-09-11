@@ -1,0 +1,27 @@
+# Make the application slow, not broken.
+#
+# Delays sit on the two requests the flow actually waits for: the page load, and
+# the call that opens the account. Both are under the timeouts the artifact
+# declares for the checkpoints that follow them, so the run should still succeed -
+# which is the claim being tested. Replay waits for a stated condition, so it
+# absorbs slowness nobody told it about. Code that slept for a fixed time instead
+# would either miss this or waste the same seconds on every healthy run.
+#
+# Push either number past its checkpoint's timeout and the run turns into a hard
+# failure naming that step. That boundary is a decision the artifact makes, not
+# the engine.
+
+upstream: http://localhost:8080
+
+rules:
+  - name: slow page load          # checkpoint after it allows 10s
+    when:
+      path_contains: /parabank/openaccount.htm
+    then:
+      delay_ms: 6000
+
+  - name: slow account creation   # checkpoint after it allows 15s
+    when:
+      path_contains: /parabank/services_proxy/bank/createAccount
+    then:
+      delay_ms: 8000

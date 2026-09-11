@@ -21,6 +21,7 @@ flow afterwards from a transcript would produce a list of dead handles.
 """
 
 import re
+import textwrap
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -32,6 +33,9 @@ from playwright.sync_api import Error as PlaywrightError
 from finautomate.artifact import (
     Capability,
     Checkpoint,
+    ElementVisible,
+    FieldId,
+    FieldName,
     Input,
     LocatorBundle,
     Output,
@@ -51,6 +55,11 @@ from finautomate.surface.browser import BrowserSurface, ControlNotFoundError, Op
 from finautomate.surface.models import Control, Snapshot
 
 SETTLE_SECONDS = 6.0
+
+TITLE_CHARS = 120
+"""A cap on a runaway goal, not a style rule. Generous because a placeholder is
+longer than the value it replaces: 80 characters fitted the goal as typed and cut
+the generalized version off mid-sentence."""
 
 # The thinking parameters are not the same across models, and the differences are
 # 400 errors rather than warnings. Verified against the API rather than remembered:
@@ -239,11 +248,104 @@ def _stable_anchor(candidates: list[str]) -> str | None:
     return min(usable, key=len) if usable else None
 
 
+def _identity(control: Control) -> tuple[str, ...]:
+    """What makes a control the same control across two snapshots.
+
+    Deliberately not `ref`. A ref is a handle stamped on during one observation and
+    re-stamped on the next, so comparing refs across snapshots compares positions,
+    not things - it reports every control as new the moment one is inserted above it.
+    """
+    return (control.role, control.name, control.field_id, control.field_name, control.text[:60])
+
+
+def _has_attribute_strategy(bundle: LocatorBundle) -> bool:
+    """Whether this bundle can find its control by a form attribute rather than by
+    wording. Those attributes are the vendor's; the wording is the institution's."""
+    return any(isinstance(s, FieldName | FieldId) for s in bundle.strategies)
+
+
+def _describe(checkpoint: Checkpoint) -> str:
+    if isinstance(checkpoint, TextVisible):
+        return f"text {checkpoint.text!r}"
+    return checkpoint.target.description
+
+
+def checkpoint_for(before: Snapshot, after: Snapshot) -> Checkpoint | None:
+    """What to wait for next time, given what this action changed on screen.
+
+    Pure, so the choice can be checked against two handmade snapshots. It decides
+    which of the two checkpoint kinds a recording gets, and that decision is the
+    difference between a capability that survives a rebrand and one that does not.
+    """
+    return _appeared(before, after) or _new_text(before, after)
+
+
+def _appeared(before: Snapshot, after: Snapshot) -> Checkpoint | None:
+    """A checkpoint on a control that was not on screen before this action."""
+    known = {_identity(c) for c in before.controls}
+    fresh = [c for c in after.controls if _identity(c) not in known]
+
+    bundles = [
+        bundle
+        for control in fresh
+        if (bundle := build_bundle(control, after, f"the {control.role} that appeared"))
+    ]
+    if not bundles:
+        return None
+    # Prefer one addressable by a form attribute. Names and nearby text are the
+    # institution's wording; `name=` and `id=` belong to the vendor and do not move
+    # when a bank rebrands. Otherwise the first in reading order - arbitrary, and no
+    # worse than any other rule available at this point.
+    durable = next((b for b in bundles if _has_attribute_strategy(b)), None)
+    return ElementVisible(kind="element_visible", target=durable or bundles[0])
+
+
+def _new_text(before: Snapshot, after: Snapshot) -> Checkpoint | None:
+    seen = {a.text for a in before.anchors}
+    stable = _stable_anchor([a.text for a in after.anchors if a.text not in seen])
+    if stable is None:
+        return None
+    return TextVisible(kind="text_visible", text=stable, match="contains")
+
+
+SLUG_CHARS = 40
+
+
 def _slug(text: str, action: str) -> str:
-    words = re.sub(r"[^a-z0-9 ]", "", text.casefold()).split()
-    drop = {"the", "a", "an", "button", "field", "link", "dropdown", "on", "of", "to"}
-    core = "_".join(w for w in words if w not in drop)[:40] or action
-    return f"{action}_{core}".strip("_")
+    """A short, stable name. Used for step ids and for the capability's own id.
+
+    Placeholders are dropped rather than spelled out. A capability whose account type
+    is a parameter must not be called `open_new_savings_account` - it opens whichever
+    type the caller asks for, and a name that says otherwise will be believed.
+
+    Cut on a word boundary. `[:40]` on the joined string left `..._from_acc`, which
+    reads like a typo rather than a truncation.
+    """
+    without_params = re.sub(r"\{\{\w+\}\}", " ", text)
+    words = re.sub(r"[^a-z0-9 ]", "", without_params.casefold()).split()
+    # Conjunctions carry nothing in a name and a cut that lands on one reads as a
+    # mistake: "..._funded_from_account_and".
+    drop = {
+        "the",
+        "a",
+        "an",
+        "and",
+        "then",
+        "button",
+        "field",
+        "link",
+        "dropdown",
+        "on",
+        "of",
+        "to",
+    }
+
+    kept: list[str] = []
+    for word in (w for w in words if w not in drop):
+        if len("_".join([*kept, word])) > SLUG_CHARS:
+            break
+        kept.append(word)
+    return f"{action}_{'_'.join(kept) or action}".strip("_")
 
 
 class Discovery:
@@ -294,6 +396,31 @@ class Discovery:
             if value and literal == value:
                 return f"{{{{{name}}}}}"
         return literal
+
+    def _generalize(self, prose: str) -> str:
+        """The same swap, inside free text rather than on a whole value.
+
+        `title` and `description` are the capability's contract - the brief asks that
+        a calling agent be able to read them and understand what it is invoking. Left
+        alone they say "opens a SAVINGS account funded from account 12345 and returns
+        13566", which describes one afternoon rather than the capability, and is
+        wrong for every caller after the first.
+
+        Nothing matches on these fields, so this is about the file being honest to
+        read, not about replay working. Longest value first, so one value that
+        contains another cannot leave half of it behind.
+        """
+        swaps = {
+            **{value: name for name, value in self.params.items()},
+            **{
+                value: output.name
+                for output, value in zip(self.outputs, self.read_values, strict=False)
+            },
+        }
+        for value, name in sorted(swaps.items(), key=lambda pair: -len(pair[0])):
+            if len(value) > 2:
+                prose = prose.replace(value, f"{{{{{name}}}}}")
+        return prose
 
     # -- the loop -----------------------------------------------------------
 
@@ -447,28 +574,55 @@ class Discovery:
         """
         deadline = time.monotonic() + SETTLE_SECONDS
         baseline = render(before)
-        seen = {a.text for a in before.anchors}
         while time.monotonic() < deadline:
             after = self.surface.observe()
             if render(after) != baseline:
-                self._attach_checkpoint(after, seen)
+                self._attach_checkpoint(before, after)
                 return
             time.sleep(0.2)
 
-    def _attach_checkpoint(self, after: Snapshot, seen: set[str]) -> None:
-        """Give the step we just recorded a checkpoint made from newly arrived text."""
-        if not self.steps:
+    def _attach_checkpoint(self, before: Snapshot, after: Snapshot) -> None:
+        """Give the step we just recorded a checkpoint for what the action produced.
+
+        A control if one appeared, and only text if none did. The order matters and
+        it is the whole point of this method.
+
+        Text is what the screen *says*. It is also the first thing a second
+        institution changes when it puts its own name on a vendor product, and a
+        text checkpoint has exactly one string and no fallback - so a reworded page
+        turns a healthy run into a hard failure. A control is addressed through the
+        same ladder every locator uses, so the top rung can miss and a lower one
+        still catch it. Measured on this application: two of the three transitions
+        produce a control carrying a vendor id, which survives any amount of
+        relabeling. The third produces only navigation links named in the
+        institution's own words, and for that one there is nothing better than
+        wording to hold on to.
+        """
+        if not self.steps or (last := self.steps[-1]).expect is not None:
             return
-        fresh = [a.text for a in after.anchors if a.text not in seen]
-        stable = _stable_anchor(fresh)
-        if stable is None:
+
+        checkpoint = checkpoint_for(before, after)
+        if checkpoint is None:
             return
-        last = self.steps[-1]
-        if last.expect is not None:
-            return
-        checkpoint: Checkpoint = TextVisible(kind="text_visible", text=stable, match="contains")
         self.steps[-1] = last.model_copy(update={"expect": checkpoint})
-        self.evidence.event("recorded_checkpoint", step=last.id, wait_for=stable)
+        self.evidence.event("recorded_checkpoint", step=last.id, wait_for=_describe(checkpoint))
+
+    def _success_condition(self) -> Checkpoint:
+        """How replay will know the job is done.
+
+        The last control we positively confirmed on screen, if there was one. That
+        is the confirmation panel here, and addressing it through a locator ladder
+        means a second institution can reword the page without the capability
+        deciding the job failed.
+
+        Otherwise the model's own sentence, which is what this always used to be. It
+        reads well and it is honest about where it came from, but it is one string
+        with no fallback, so it is the second choice rather than the first.
+        """
+        for step in reversed(self.steps):
+            if isinstance(step.expect, ElementVisible):
+                return step.expect
+        return TextVisible(kind="text_visible", text=self.success_text, match="contains")
 
     def _opening(self, goal: str) -> str:
         lines = [f"Goal: {goal}"]
@@ -724,19 +878,27 @@ class Discovery:
             if n in used
         ]
         return Capability(
-            id=_slug(goal, "capability").replace("capability_", "") or "capability",
+            # The generalized goal, not the raw one. `_slug` drops placeholders, and
+            # there are none in the goal as typed - so slugging that produced
+            # `open_new_savings_account...` for a capability whose account type is a
+            # parameter.
+            id=_slug(self._generalize(goal), "capability").replace("capability_", "")
+            or "capability",
             version=1,
-            title=goal[:80],
-            # Deliberately not trimmed. `_stable` exists to protect the success
-            # matcher; applied to prose it cuts a sentence in half at the first
-            # parameter value, which is worse than a description that names one run.
-            description=self.summary or goal,
+            # Generalized, not trimmed. `_stable` protects the success matcher by
+            # cutting text at the first run-specific value, which is right for a
+            # matcher and wrong for prose - it leaves half a sentence. Swapping the
+            # values for their parameter names keeps the sentence and makes it true
+            # for every caller. Shortened on a word boundary so a placeholder cannot
+            # be cut in half.
+            title=textwrap.shorten(self._generalize(goal), width=TITLE_CHARS, placeholder=" ..."),
+            description=self._generalize(self.summary or goal),
             target=Target(app=app, surface="browser", entry=entry),
             inputs=inputs,
             outputs=self.outputs,
             steps=self.steps,
             outcomes=self._declared_outcomes(),
-            success=TextVisible(kind="text_visible", text=self.success_text, match="contains"),
+            success=self._success_condition(),
             recorded=Recorded(
                 at=datetime.now(UTC),
                 run=self.evidence.run_id,

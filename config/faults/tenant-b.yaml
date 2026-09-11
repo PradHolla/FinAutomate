@@ -1,0 +1,56 @@
+# Tenant B: the same vendor product, reworded by a different institution.
+#
+# A white-label deployment changes the wording, not the plumbing. Field names and
+# element ids belong to the vendor and stay put; headings, labels, prose and one
+# button label are the institution's, and they move. That is exactly the split the
+# locator ladder is built around, so this file is the honest test of it.
+#
+# Two strings are deliberately left alone, and the reason is worth reading:
+#
+#   "Welcome"     the last rung of the submit button's ladder is "the button after
+#                 the text Welcome". Rename it and that control has nothing left.
+#                 Not a checkpoint problem - the ladder is simply shallow there.
+#   "John Smith"  the customer's own name. A rebrand does not change it, and the
+#                 nav link's last rung anchors to it.
+#
+# Everything else moves, including three strings that used to be frozen because
+# checkpoints were recorded as literal text with no fallback. They are recorded as
+# controls now, so they degrade like every other locator.
+#
+# The button is renamed through its HTML attribute, and that rule comes first so
+# the broader rename below does not consume it.
+
+upstream: http://localhost:8080
+
+rules:
+  - name: rebrand as Riverbend Credit Union
+    then:
+      replace:
+        - find: ParaBank
+          with: Riverbend Credit Union
+        - find: Customer Login
+          with: Member Sign On
+        - find: Username
+          with: User ID
+        - find: Password
+          with: Passcode
+        - find: Log In
+          with: Sign On
+        - find: Account Services
+          with: Everyday Banking
+        - find: What type of Account would you like to open?
+          with: Which product would you like to open?
+        - find: A minimum of $100.00 must be deposited into this account at time of
+            opening. Please choose an existing account to transfer funds into the new
+            account.
+          with: Choose which of your accounts should fund the opening deposit.
+        - find: value="Open New Account"
+          with: value="Open the Account"
+        - find: Open New Account
+          with: Open an Account
+        - find: Account Opened!
+          with: Account Created
+        - find: 'Your new account number:'
+          with: 'Your new account reference:'
+        - find: Congratulations, your account is now open.
+          with: All set - the account is live.
