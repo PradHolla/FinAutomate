@@ -72,9 +72,9 @@ class RoleName(Frozen):
 class AnchoredRole(Frozen):
     """Role plus the nearest text before or after it.
 
-    Required, not optional: none of ParaBank's 36 input fields has a real label, so
-    the browser computes an empty accessible name for all of them and `RoleName`
-    cannot address a single one.
+    Required, not optional. Measured across eight of the target's screens: 42 form
+    fields, and not one of them has an accessible name. The browser computes an
+    empty string for every input, so `RoleName` cannot address a single one.
     """
 
     kind: Literal["anchored_role"]

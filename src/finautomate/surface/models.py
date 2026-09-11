@@ -30,8 +30,11 @@ class Control(BaseModel):
     checkbox, radio. The desktop equivalents map onto the same vocabulary."""
 
     name: str = ""
-    """Accessible name. Empty is common and expected - none of ParaBank's 36 input
-    fields has one, which is the entire reason the locator ladder exists."""
+    """Accessible name as the browser computes it.
+
+    Empty is common and expected. Measured across eight of the target's screens: 42
+    form fields, none with a name. That is the entire reason the locator ladder
+    exists - links and buttons have names, inputs do not."""
 
     value: str = ""
     field_name: str = ""

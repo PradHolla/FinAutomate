@@ -98,6 +98,54 @@ answer the caller needs, not a crash to page someone about.
 Try it: pass `--param funding_account_id=99999`, an account the customer does not
 own, and compare with stopping the app entirely (`docker stop parabank`).
 
+## Handing the session to a person
+
+Some steps should not run without a person. `submit_open_account` opens a real bank
+account, so the artifact marks it irreversible and an unattended run stops there.
+
+That is what `--attended` has been skipping past. Drop it and add a wait instead:
+
+```bash
+uv run finautomate reset
+uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml \
+  --param username=john --secret password=demo \
+  --param account_type=SAVINGS --param funding_account_id=12345 \
+  --wait-for-human 300 --headed
+```
+
+The run stops, prints the request, and waits. **The browser stays open on the same
+page** - that is the point, the person gets the session the automation was using, not
+a fresh one.
+
+In a second terminal:
+
+```bash
+uv run finautomate interventions          # what is waiting, and why
+uv run finautomate resolve <id> --approve --operator you   # the automation may do it
+uv run finautomate resolve <id> --handled --operator you   # you did it yourself
+uv run finautomate resolve <id> --reject  --operator you --note "not today"
+```
+
+`--approve` and `--handled` are deliberately different. One is the machine acting with
+permission; the other is a person acting instead of the machine. An audit of a bank's
+systems cares which, so we do not collapse them into "continue".
+
+If you pick `--handled`, do the step in the browser first - click **Open New Account**
+yourself. The page reports your clicks and field changes back into the same evidence
+log as everything the automation did, so there is no gap in the record. Passwords are
+never recorded, only that a password field changed.
+
+Control returns to the automation on every path, including rejection. Then the run
+finishes and reports.
+
+Without `--wait-for-human` the run raises the request and exits 3 straight away, which
+is the right behavior for an unattended queue: it tells the caller a person is needed
+rather than blocking.
+
+`evidence/replay-0d5fb2c4f4/` is a real one, driven by hand. `intervention.json` there
+holds the whole record - which step, why it stopped, what was on screen, who decided,
+and the click they made while they held the session.
+
 ## Breaking it on purpose
 
 The application will give us a business outcome and a hard failure whenever we ask.
@@ -172,10 +220,10 @@ locator to get there:
   click_open_new_account_2         click    [6] anchored_role  <- fallback
   read_new_account_number          read     [3] field_id  <- fallback
 
-SUCCESS in 590ms
+SUCCESS in 587ms
   new_account_number = '13566'
   drift warning: 8 of 8 steps needed a fallback locator
-  evidence : evidence/replay-de452df63d
+  evidence : evidence/replay-3a70c80f84
 ```
 
 Every step, including the irreversible one, found its control by a rung nobody

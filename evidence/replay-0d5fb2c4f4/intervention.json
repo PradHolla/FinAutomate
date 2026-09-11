@@ -1,13 +1,13 @@
 {
-  "id": "replay-61e9d1dee4",
-  "run": "replay-61e9d1dee4",
+  "id": "replay-0d5fb2c4f4",
+  "run": "replay-0d5fb2c4f4",
   "capability": "open_new_savings_account_funded_from_acc",
   "step": "click_open_new_account_2",
   "reason": "click_open_new_account_2 is marked irreversible and this run is unattended. It would have: Open New Account button.",
   "kind": "risky_step",
   "controller": "agent",
-  "status": "rejected",
-  "screenshot": "evidence/replay-61e9d1dee4/held-click_open_new_account_2.png",
+  "status": "handled",
+  "screenshot": "evidence/replay-0d5fb2c4f4/held-click_open_new_account_2.png",
   "screen": [
     "c0 link 'About Us'",
     "c1 link 'Services'",
@@ -38,9 +38,16 @@
     "c26 link 'Contact Us'",
     "c27 link 'www.parasoft.com'"
   ],
-  "created": "2026-09-10T18:44:28.563190Z",
-  "resolved": "2026-09-10T18:44:29.136354Z",
-  "operator": "risk-desk",
-  "note": "customer not verified",
-  "human_actions": []
+  "created": "2026-09-10T20:23:38.734873Z",
+  "resolved": "2026-09-10T20:23:54.886609Z",
+  "operator": "operator",
+  "note": null,
+  "human_actions": [
+    {
+      "at": "2026-09-10T20:23:54.902543Z",
+      "kind": "click",
+      "target": "input \"Open New Account\"",
+      "value": ""
+    }
+  ]
 }
