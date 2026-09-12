@@ -445,8 +445,9 @@ outcomes:
   classification: business_outcome
   message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-12T05:32:49.193535Z'
-  run: discovery-e1a2b9c0f1
+  at: '2026-09-12T23:37:47.238170Z'
+  run: discovery-dda3f3c3c2
   model: claude-haiku-4-5
   goal: Open a new SAVINGS account funded from account 12345, and return the new account number
-  evidence: evidence/discovery-e1a2b9c0f1
+  evidence: evidence/discovery-dda3f3c3c2
+  supersedes: discovery-e1a2b9c0f1

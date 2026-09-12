@@ -1,0 +1,13 @@
+{"at": "2026-09-12T23:44:54.129+00:00", "kind": "replay_started", "capability": "open_new_account_funded_from_account", "version": 1, "attended": false, "parameters": ["account_type", "funding_account", "password", "username"]}
+{"at": "2026-09-12T23:44:54.314+00:00", "kind": "step", "id": "type_text_username", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-12T23:44:54.327+00:00", "kind": "step", "id": "type_secret_password", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-12T23:44:54.423+00:00", "kind": "step", "id": "click_log_in", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-12T23:44:54.529+00:00", "kind": "step", "id": "click_open_new_account", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-12T23:44:54.563+00:00", "kind": "step", "id": "select_account_type", "action": "select", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-12T23:44:54.571+00:00", "kind": "step", "id": "select_funding_account", "action": "select", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-12T23:44:54.571+00:00", "kind": "risky_step_held", "step": "click_open_new_account_2", "reason": "click_open_new_account_2 is marked irreversible and this run is unattended. It would have: Open New Account button."}
+{"at": "2026-09-12T23:44:54.630+00:00", "kind": "handed_to_human", "intervention": "replay-275b89d0f4", "step": "click_open_new_account_2", "file": "interventions/replay-275b89d0f4.json"}
+{"at": "2026-09-12T23:45:35.153+00:00", "kind": "human_action", "did": "click", "target": "input \"Open New Account\"", "value": ""}
+{"at": "2026-09-12T23:45:35.154+00:00", "kind": "control_returned", "intervention": "replay-275b89d0f4", "decision": "handled", "operator": "pnh", "human_actions": 1}
+{"at": "2026-09-12T23:45:35.177+00:00", "kind": "step", "id": "read_new_account_number", "action": "read", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-12T23:45:35.182+00:00", "kind": "replay_finished", "outcome": "success", "duration_ms": 41053}

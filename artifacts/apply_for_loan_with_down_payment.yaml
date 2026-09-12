@@ -4,8 +4,7 @@ version: 1
 title: Apply for a loan of {{loan_amount}} with a down payment of {{down_payment}} from account
   {{from_account}}, and ...
 description: Successfully applied for a loan of {{loan_amount}} with a down payment of {{down_payment}}
-  from account {{from_account}}. The loan was approved and a new loan account ({{new_loan_account_number}})
-  was created.
+  from account {{from_account}}. Loan approved with new account number {{new_loan_account_number}}.
 target:
   app: parabank
   surface: browser
@@ -315,7 +314,7 @@ steps:
 - id: select_from_account
   action: select
   target:
-    description: 'From account # dropdown'
+    description: From account dropdown
     strategies:
     - kind: anchored_role
       role: combobox
@@ -497,9 +496,10 @@ outcomes:
   classification: business_outcome
   message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-12T05:34:45.927507Z'
-  run: discovery-d04cbd4e04
+  at: '2026-09-12T23:38:40.282153Z'
+  run: discovery-f889b045f3
   model: claude-haiku-4-5
   goal: Apply for a loan of 1000 with a down payment of 900 from account 12345, and return
     the new loan account number
-  evidence: evidence/discovery-d04cbd4e04
+  evidence: evidence/discovery-f889b045f3
+  supersedes: discovery-d04cbd4e04
