@@ -8,6 +8,7 @@ time with no model involved, and a person can be brought in when the system cann
 safely finish on its own.
 
 * `REPORT.md` is the design write-up.
+* `FINDINGS.md` lists the bugs this project found in itself, and what changed.
 * `evidence/` holds one real run per outcome, with its own index.
 * `artifacts/` holds the two capabilities. **Both were recorded by an LLM driving
   the real UI**, never written by hand. Each one names the run that produced it in
@@ -34,24 +35,18 @@ Everything below assumes it is running on port 8080.
 
 ## Configuration
 
-Discovery drives the model, so it needs a key. Put it in a `.env` file at the repo root,
-which is what `uv run --env-file .env` below reads:
+Discovery drives the model, so it needs a key:
 
 ```bash
-echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 **Replay needs no key at all**, which is the point of the system: the model works out how
 to do a job once and is never used to do it again. So a replay costs nothing and runs
 offline from the model, while a discovery run costs a few cents.
 
-Pick the model with `--model sonnet` (the default) or `--model haiku`. Both artifacts in
-this repo were recorded with Haiku 4.5, at about five to seven cents a run against
-roughly eight for Sonnet 5.
-
-That is not a free win. Haiku needs more turns, and the conversation grows with every
-turn, so the first Haiku run actually cost *more* than Sonnet until a precondition check
-cut the number of turns down. Cost per task is not the same as cost per token.
+Haiku 4.5 is the default; `--model sonnet` switches. A run costs about three cents and
+the CLI prints what it used, including how much came from cache.
 
 No secrets are read from or written to this repository.
 
@@ -64,26 +59,28 @@ Three commands: reset the app, record a capability, replay it.
 uv run finautomate reset
 
 # 2. let the model work out how to do the job, once
-uv run --env-file .env finautomate discover \
+uv run finautomate discover \
   "Open a new SAVINGS account funded from account 12345, and return the new account number" \
-  --param username=john \
-  --param account_type=SAVINGS \
-  --param funding_account_id=12345 \
-  --secret password=demo \
-  --expect-output new_account_number
+  --param username=john --secret password=demo
 
 # 3. run it again from the recording, with no model involved
 uv run finautomate reset
 uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml \
   --param username=john \
   --param account_type=SAVINGS \
-  --param funding_account_id=12345 \
+  --param funding_account=12345 \
   --secret password=demo \
   --attended
 ```
 
-Step 2 costs a few cents and opens a real account, so reset between runs. Step 3 costs
-nothing and needs no key.
+Step 2 costs about three cents and opens a real account, so reset between runs. Step 3
+costs nothing and needs no key.
+
+**Only credentials are passed in.** The model reads `SAVINGS` and `12345` out of the
+goal, decides which of the values it entered a caller should be able to change, and
+names them itself. Look at `inputs:` in the artifact it writes to see the contract it
+designed. Parameter names are its choice, so read them off the file rather than assuming
+them.
 
 `--attended` means a person is watching. Without it the run stops before the step that
 opens the account, because that step is marked irreversible. There is a section on that
@@ -99,14 +96,9 @@ once, and we wrote down what worked. Neither was written by hand.
 ```bash
 # recorded by the model, exactly like the first one
 uv run finautomate reset
-uv run --env-file .env finautomate discover \
+uv run finautomate discover \
   "Apply for a loan of 1000 with a down payment of 900 from account 12345, and return the new loan account number" \
-  --param username=john \
-  --param loan_amount=1000 \
-  --param down_payment=900 \
-  --param funding_account_id=12345 \
-  --secret password=demo \
-  --expect-output new_loan_account_number
+  --param username=john --secret password=demo
 ```
 
 The result of that run is also committed, so you can compare what you get against what
@@ -114,10 +106,10 @@ we got. Every artifact says which run produced it:
 
 ```yaml
 recorded:
-  run: discovery-f33009db49
+  run: discovery-d04cbd4e04
   model: claude-haiku-4-5
   goal: Apply for a loan of 1000 with a down payment of 900 from account 12345...
-  evidence: evidence/discovery-f33009db49
+  evidence: evidence/discovery-d04cbd4e04
 ```
 
 That evidence directory holds the whole run: every action the model chose, every policy
@@ -132,7 +124,7 @@ uv run finautomate reset
 uv run finautomate replay artifacts/apply_for_loan_with_down_payment.yaml \
   --param username=john --secret password=demo \
   --param loan_amount=1000 --param down_payment=900 \
-  --param funding_account_id=12345 --attended
+  --param from_account=12345 --attended
 ```
 
 That one is approved and returns the new loan account number. Ask for more than the
@@ -143,7 +135,7 @@ uv run finautomate reset
 uv run finautomate replay artifacts/apply_for_loan_with_down_payment.yaml \
   --param username=john --secret password=demo \
   --param loan_amount=900000 --param down_payment=1 \
-  --param funding_account_id=12345 --attended
+  --param from_account=12345 --attended
 ```
 
 ```
@@ -155,8 +147,8 @@ Exit 2, not exit 1. The application considered the request and gave an answer. T
 result the caller asked for, not a failure to wake anybody up about.
 
 This one capability can produce **two different** business outcomes, and they are not the
-same thing. Pass `--param funding_account_id=99999`, an account the customer does not
-own, and you get `FUNDING_ACCOUNT_ID_NOT_AVAILABLE`. That is the caller getting it wrong.
+same thing. Pass `--param from_account=99999`, an account the customer does not
+own, and you get `FROM_ACCOUNT_NOT_AVAILABLE`. That is the caller getting it wrong.
 The refusal above is the bank weighing an application and saying no. Both are answers.
 
 ## Exit codes
@@ -185,7 +177,7 @@ That is what `--attended` has been skipping past. Drop it, and add a wait instea
 uv run finautomate reset
 uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml \
   --param username=john --secret password=demo \
-  --param account_type=SAVINGS --param funding_account_id=12345 \
+  --param account_type=SAVINGS --param funding_account=12345 \
   --wait-for-human 300 --headed
 ```
 
@@ -245,7 +237,7 @@ Run against it in the other:
 uv run finautomate reset
 uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml \
   --param username=john --secret password=demo \
-  --param account_type=SAVINGS --param funding_account_id=12345 \
+  --param account_type=SAVINGS --param funding_account=12345 \
   --base-url http://localhost:8888 --attended
 ```
 
@@ -282,7 +274,7 @@ uv run finautomate proxy --rules config/faults/tenant-b.yaml --port 8889
 ```bash
 uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml \
   --param username=john --secret password=demo \
-  --param account_type=SAVINGS --param funding_account_id=12345 \
+  --param account_type=SAVINGS --param funding_account=12345 \
   --config config/tenant-b.yaml --attended
 ```
 
@@ -299,10 +291,10 @@ the ladder to get there:
   click_open_new_account_2         click    [5] anchored_role  <- fallback
   read_new_account_number          read     [3] field_id  <- fallback
 
-SUCCESS in 591ms
+SUCCESS in 524ms
   new_account_number = '13566'
   drift warning: 8 of 8 steps needed a fallback locator
-  evidence : evidence/replay-9ba9c82d18
+  evidence : evidence/replay-ab6cda16d6
 ```
 
 Every step, including the irreversible one, found its control by a rung nobody would have

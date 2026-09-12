@@ -57,14 +57,9 @@ MODELS: dict[str, tuple[str, dict[str, Any]]] = {
         {"thinking": {"type": "enabled", "budget_tokens": 2048}},
     ),
 }
-DEFAULT_MODEL = "sonnet"
-MAX_DONE_REJECTIONS = 2
-"""How many times the loop pushes back on `done` before giving up.
-
-An artifact missing a declared output is worse than no artifact, so it stops rather
-than looping to `max_steps`.
-"""
-
+DEFAULT_MODEL = "haiku"
+"""Haiku does this job at about a quarter the cost. For a record-once system the
+cheaper model that works is the better default."""
 # Tool names and artifact actions are deliberately not the same: `type_secret` and
 # `type_text` both record as `type`. Policy checks the mapped action.
 TOOL_ACTION = {
@@ -101,11 +96,15 @@ Rules:
   the run ever needs help.
 - For a parameter marked SECRET, use `type_secret` and name the parameter. You will
   never be given its value and do not need it.
-- Set every parameter you were given explicitly, even when a field already appears
-  to hold the right value. A default that happens to be correct today will not be
-  correct for the next caller.
+- Set every value the goal specifies explicitly, even when the field already shows it.
+  A default that happens to be right today will not be right for the next caller, and a
+  value you did not set is not in the recording at all.
 - If the goal asks for a value back, you must `read` it off the screen before
   calling `done`. A summary mentioning the value is not the same as capturing it.
+- When you call `done`, declare `parameters`: every value you entered that a future
+  caller should be able to change, with a short name for each. The account type you
+  chose and the account you funded from are parameters. Your own username is supplied
+  to you, so leave it out. This is the capability's contract and it is yours to decide.
 - Call `done` when the goal is visibly achieved. For `success_text`, give a SHORT
   phrase that will read the same on every future run - "Account Opened" is right.
   Never include an account number, amount, date, or anything else specific to this
@@ -134,7 +133,10 @@ def _tools() -> list[ToolParam]:
         {"name": "click", "description": "Click a control.", "input_schema": control(required=[])},
         {
             "name": "type_text",
-            "description": "Type a value into a field.",
+            "description": (
+                "Type a value into a field. Type it even when the field already shows it: "
+                "a value you did not set is not in the recording."
+            ),
             "input_schema": control({"text": {"type": "string"}}, required=["text"]),
         },
         {
@@ -147,7 +149,11 @@ def _tools() -> list[ToolParam]:
         },
         {
             "name": "select",
-            "description": "Choose an option in a dropdown by its visible label.",
+            "description": (
+                "Choose an option in a dropdown by its visible label. Select it even when "
+                "it already appears chosen: a value you did not set is not in the "
+                "recording, and the next caller's default will be different."
+            ),
             "input_schema": control({"label": {"type": "string"}}, required=["label"]),
         },
         {
@@ -179,8 +185,29 @@ def _tools() -> list[ToolParam]:
                         "type": "string",
                         "description": "Text visible on screen that proves success.",
                     },
+                    "parameters": {
+                        "type": "array",
+                        "description": (
+                            "Values you entered that a future caller should be able to "
+                            "change. Name each one."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "value": {"type": "string"},
+                            },
+                            "required": ["name", "value"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "outputs": {
+                        "type": "array",
+                        "description": "Names of values you captured with `read`.",
+                        "items": {"type": "string"},
+                    },
                 },
-                "required": ["summary", "success_text"],
+                "required": ["summary", "success_text", "parameters"],
                 "additionalProperties": False,
             },
         },
@@ -339,9 +366,6 @@ def _slug(text: str, action: str) -> str:
     return f"{action}_{'_'.join(kept) or action}".strip("_")
 
 
-GAVE_UP = "__gave_up__"
-
-
 def _tool_results(answers: list[tuple[str, str]]) -> MessageParam:
     """Every tool_use block must be answered or the next request is rejected."""
     return {
@@ -364,7 +388,6 @@ class Discovery:
         evidence: Evidence,
         params: dict[str, str],
         secrets: dict[str, str],
-        expect_outputs: tuple[str, ...] = (),
         model: str = DEFAULT_MODEL,
     ) -> None:
         self.surface = surface
@@ -374,7 +397,6 @@ class Discovery:
         self.evidence = evidence
         self.params = params
         self.secrets = secrets
-        self.expect_outputs = expect_outputs
         self.model, self.model_params = MODELS[model]
         self.steps: list[Step] = []
         self.outputs: list[Output] = []
@@ -382,10 +404,17 @@ class Discovery:
         self.tokens_in = 0
         self.tokens_out = 0
         self.calls = 0
+        self.cache_written = 0
+        self.cache_read = 0
         self.success_text = ""
         self.summary = ""
         self.read_values: list[str] = []
-        self.rejections = 0
+        self.complaint = ""
+        self.warned_before_risky = False
+        self.declared: dict[str, str] = {}
+        """Parameters the model named at `done`. The contract is its to decide."""
+        self.effective: dict[tuple[str, ...], str] = {}
+        """What each control is currently left holding, keyed by control identity."""
 
     def _as_reference(self, literal: str) -> str:
         """Replace a typed value with its parameter placeholder.
@@ -406,6 +435,7 @@ class Discovery:
         """
         swaps = {
             **{value: name for name, value in self.params.items()},
+            **{value: name for name, value in self.declared.items()},
             **{
                 value: output.name
                 for output, value in zip(self.outputs, self.read_values, strict=False)
@@ -443,13 +473,6 @@ class Discovery:
                 url=snapshot.url,
             )
 
-            if block.name == "done" and (nudge := self._not_finished(step_number)) is not None:
-                if nudge == GAVE_UP:
-                    outcome = "incomplete"
-                    break
-                messages.append(_tool_results([(block.id, nudge)]))
-                continue
-
             if block.name in ("done", "stuck"):
                 outcome = block.name
                 self._finish(block)
@@ -485,42 +508,6 @@ class Discovery:
         if self.tokens_in + self.tokens_out > self.guards.max_tokens_total:
             return "token_budget"
         return None
-
-    def _not_finished(self, step_number: int) -> str | None:
-        """Why `done` is refused, GAVE_UP once refusals run out, or None if it is fine.
-
-        An artifact missing a declared output looks fine and returns nothing, which
-        is worse than a failed run.
-        """
-        missing = self._missing_outputs() + self._missing_params()
-        if not missing:
-            return None
-        if self.rejections >= MAX_DONE_REJECTIONS:
-            self.evidence.event("gave_up", missing=list(missing))
-            return GAVE_UP
-
-        self.rejections += 1
-        self.evidence.event("done_rejected", step=step_number, missing=list(missing))
-        return (
-            f"Not finished. These are still unaccounted for: {', '.join(missing)}. "
-            "Every parameter must be set explicitly on the screen, even when a field "
-            "already looks correct, and every required output must be captured with "
-            "`read`. Do that, then call done."
-        )
-
-    def _missing_outputs(self) -> tuple[str, ...]:
-        captured = {o.name for o in self.outputs}
-        return tuple(name for name in self.expect_outputs if name not in captured)
-
-    def _missing_params(self) -> tuple[str, ...]:
-        """Parameters the caller supplied that no recorded step actually uses.
-
-        An unused parameter is a lie in the capability's contract, so `done` refuses
-        until it is set or dropped.
-        """
-        used = {p for step in self.steps for p in re.findall(r"\{\{(\w+)\}\}", step.value or "")}
-        declared = {*self.params, *self.secrets}
-        return tuple(sorted(declared - used))
 
     def _stale(self, expected: Control) -> str:
         """Empty string when the ref still points at the same control."""
@@ -577,10 +564,7 @@ class Discovery:
         return TextVisible(kind="text_visible", text=self.success_text, match="contains")
 
     def _opening(self, goal: str) -> str:
-        lines = [f"Goal: {goal}"]
-        if self.expect_outputs:
-            lines += ["", f"This capability must return: {', '.join(self.expect_outputs)}."]
-        lines += ["", "Parameters you may need:"]
+        lines = [f"Goal: {goal}", "", "Values supplied to you:"]
         for name, value in self.params.items():
             lines.append(f"  {name} = {value!r}")
         for name in self.secrets:
@@ -591,17 +575,24 @@ class Discovery:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
-            # Same system prompt and tools every turn, so cache them.
-            system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
+            # The conversation is what grows, so that is what is worth caching. A
+            # top-level breakpoint moves forward on its own as turns accumulate.
+            # Marking only the system block did nothing: it is ~1.7k tokens and Haiku
+            # 4.5 will not cache a prefix under 4,096, silently and with no error.
+            cache_control={"type": "ephemeral"},
+            system=[{"type": "text", "text": SYSTEM}],
             tools=_tools(),
             # One action per turn: the loop re-observes the screen between actions.
             tool_choice={"type": "auto", "disable_parallel_tool_use": True},
             messages=messages,
             **self.model_params,
         )
+        usage = response.usage
         self.calls += 1
-        self.tokens_in += response.usage.input_tokens
-        self.tokens_out += response.usage.output_tokens
+        self.tokens_in += usage.input_tokens
+        self.tokens_out += usage.output_tokens
+        self.cache_written += getattr(usage, "cache_creation_input_tokens", 0) or 0
+        self.cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
         messages.append({"role": "assistant", "content": response.content})
         return [b for b in response.content if isinstance(b, ToolUseBlock)]
 
@@ -629,7 +620,7 @@ class Discovery:
             verdict=decision.verdict,
             reason=decision.reason,
         )
-        if (refusal := self._refuse(control, description, decision, step_number)) is not None:
+        if (refusal := self._refuse(control, decision, step_number)) is not None:
             return refusal
         return self._record_and_act(
             block, args, control, snapshot, description, decision, step_number
@@ -645,13 +636,7 @@ class Discovery:
         self._add_step(Step(id=self._step_id("navigate", path), action="navigate"))
         return "navigated"
 
-    def _refuse(
-        self,
-        control: Control,
-        description: str,
-        decision: Decision,
-        step_number: int,
-    ) -> str | None:
+    def _refuse(self, control: Control, decision: Decision, step_number: int) -> str | None:
         """Why this action must not happen, or None if it may."""
         # The ref may be stale if the page moved since the model looked, so this
         # rejects rather than attempts.
@@ -662,16 +647,18 @@ class Discovery:
         if decision.blocked:
             return f"REFUSED by policy: {decision.reason}"
 
-        # Preconditions must hold before the risky step, not at `done`, by which
-        # time the account already exists.
-        if decision.verdict == "risky" and (unset := self._missing_params()):
-            self.evidence.event(
-                "precondition_held", step=step_number, control=description, missing=list(unset)
-            )
+        # One pause before the point of no return, while the form is still editable.
+        # A field left on its default is not in the recording, and after this click
+        # there is no way back to set it. Fires once per run.
+        if decision.verdict == "risky" and not self.warned_before_risky:
+            self.warned_before_risky = True
+            self.evidence.event("paused_before_risky", step=step_number)
             return (
-                f"Not yet. {description} is irreversible, and these parameters are "
-                f"still unset on this screen: {', '.join(unset)}. Set them first, "
-                "then do this."
+                "Before this irreversible step: any field you have NOT set yourself is "
+                "on its default, and a default is not in the recording. A future caller "
+                "gets their own. Set only the fields you have not already set, then do "
+                "this again. Fields you have already set are recorded; setting them "
+                "twice only adds a redundant step."
             )
         return None
 
@@ -699,7 +686,7 @@ class Discovery:
 
         risk: Risk = "risky" if decision.verdict == "risky" else "safe"
         try:
-            return self._act(block, args, control.ref, description, bundle, risk)
+            return self._act(block, args, control, description, bundle, risk)
         except OptionNotFoundError as err:
             return f"No option {err.label!r}. Available: {err.available_labels[:12]}"
         except ControlNotFoundError:
@@ -719,12 +706,13 @@ class Discovery:
         self,
         block: ToolUseBlock,
         args: dict[str, Any],
-        ref: str,
+        control: Control,
         description: str,
         bundle: LocatorBundle,
         risk: Risk,
     ) -> str:
         step_id = self._step_id(block.name, description)
+        ref = control.ref
 
         if block.name == "click":
             self.surface.click(ref)
@@ -743,6 +731,7 @@ class Discovery:
                     risk=risk,
                 )
             )
+            self.effective[_identity(control)] = self._as_reference(literal)
             return "typed"
 
         if block.name == "type_secret":
@@ -753,6 +742,7 @@ class Discovery:
             self._add_step(
                 Step(id=step_id, action="type", target=bundle, value=f"{{{{{name}}}}}", risk=risk)
             )
+            self.effective[_identity(control)] = f"{{{{{name}}}}}"
             return "typed secret"
 
         if block.name == "select":
@@ -773,6 +763,7 @@ class Discovery:
                     outcomes=outcomes,
                 )
             )
+            self.effective[_identity(control)] = reference
             return f"selected {label!r}"
 
         if block.name == "read":
@@ -801,6 +792,21 @@ class Discovery:
         args: dict[str, Any] = dict(block.input)
         self.success_text = self._stable(str(args.get("success_text", "")))
         self.summary = str(args.get("summary") or args.get("reason", ""))
+        for item in args.get("parameters") or []:
+            name, value = str(item.get("name", "")).strip(), str(item.get("value", ""))
+            if name and value and name not in self.secrets and name not in self.params:
+                self.declared[name] = value
+        self.evidence.event("declared_parameters", names=sorted(self.declared))
+
+    def _unset_declared(self, steps: list[Step]) -> tuple[str, ...]:
+        """Parameters the model named at `done` that no step actually sets.
+
+        Its own declaration, held to. Declaring `account_type` and then leaving the
+        dropdown on whatever it defaulted to produces a capability that ignores the
+        argument, which is worse than one that never offered it.
+        """
+        set_values = {s.value for s in steps if s.value}
+        return tuple(sorted(n for n, v in self.declared.items() if v not in set_values))
 
     def _stable(self, text: str) -> str:
         """Cut a success phrase at the first run-specific value.
@@ -814,10 +820,10 @@ class Discovery:
         trimmed = text[:cut].strip(" .,:;-!")
         return trimmed or text
 
-    def _declared_outcomes(self) -> list[DeclaredOutcome]:
+    def _declared_outcomes(self, steps: list[Step]) -> list[DeclaredOutcome]:
         """Business outcomes the recorded steps can raise."""
         seen: dict[str, DeclaredOutcome] = {}
-        for step in self.steps:
+        for step in steps:
             for name in step.outcomes.values():
                 seen.setdefault(
                     name,
@@ -829,11 +835,40 @@ class Discovery:
                 )
         return list(seen.values())
 
-    def _capability(self, goal: str, entry: str, app: str) -> Capability:
-        used = {p for s in self.steps for p in re.findall(r"\{\{(\w+)\}\}", s.value or "")}
+    def _parameterize(self, steps: list[Step]) -> list[Step]:
+        """Replace the literals the model named at `done` with their placeholders.
+
+        Supplied values are swapped when the step is recorded, because they are known
+        then. The model's own parameters are only known at the end, so they are swapped
+        here.
+        """
+        out: list[Step] = []
+        for step in steps:
+            name = next((n for n, v in self.declared.items() if v and step.value == v), None)
+            if name is None:
+                out.append(step)
+                continue
+            update: dict[str, Any] = {"value": f"{{{{{name}}}}}"}
+            if step.action == "select":
+                # A missing option is the app answering "not available", not a failure.
+                update["outcomes"] = {"option_not_found": f"{name.upper()}_NOT_AVAILABLE"}
+            out.append(step.model_copy(update=update))
+        return out
+
+    def _capability(self, goal: str, entry: str, app: str) -> Capability | None:
+        if unset := self._unset_declared(self.steps):
+            self.evidence.event("declaration_unmet", parameters=list(unset))
+            self.complaint = (
+                f"declared {', '.join(unset)} as parameters but no step sets them, so the "
+                "recording would ignore those arguments. The form was probably left on a "
+                "default."
+            )
+            return None
+        steps = self._parameterize(self.steps)
+        used = {p for s in steps for p in re.findall(r"\{\{(\w+)\}\}", s.value or "")}
         inputs = [
             Input(name=n, type="string", secret=n in self.secrets)
-            for n in [*self.params, *self.secrets]
+            for n in [*self.params, *self.secrets, *self.declared]
             if n in used
         ]
         return Capability(
@@ -849,8 +884,8 @@ class Discovery:
             target=Target(app=app, surface="browser", entry=entry),
             inputs=inputs,
             outputs=self.outputs,
-            steps=self.steps,
-            outcomes=self._declared_outcomes(),
+            steps=steps,
+            outcomes=self._declared_outcomes(steps),
             success=self._success_condition(),
             recorded=Recorded(
                 at=datetime.now(UTC),

@@ -1,9 +1,9 @@
 schema_version: 1
 id: open_new_account_funded_from_account
 version: 1
-title: Open a new {{account_type}} account funded from account {{funding_account_id}}, and
-  return the new account number
-description: Successfully opened a new {{account_type}} account funded from account {{funding_account_id}}.
+title: Open a new {{account_type}} account funded from account {{funding_account}}, and return
+  the new account number
+description: Successfully opened a new {{account_type}} account funded from account {{funding_account}}.
   The new account number is {{new_account_number}}.
 target:
   app: parabank
@@ -14,18 +14,18 @@ inputs:
   type: string
   required: true
   secret: false
-- name: account_type
-  type: string
-  required: true
-  secret: false
-- name: funding_account_id
-  type: string
-  required: true
-  secret: false
 - name: password
   type: string
   required: true
   secret: true
+- name: account_type
+  type: string
+  required: true
+  secret: false
+- name: funding_account
+  type: string
+  required: true
+  secret: false
 outputs:
 - name: new_account_number
   type: string
@@ -314,11 +314,11 @@ steps:
       position: before
     - kind: field_id
       id: fromAccountId
-  value: '{{funding_account_id}}'
+  value: '{{funding_account}}'
   by: label
   risk: safe
   outcomes:
-    option_not_found: FUNDING_ACCOUNT_ID_NOT_AVAILABLE
+    option_not_found: FUNDING_ACCOUNT_NOT_AVAILABLE
 - id: click_open_new_account_2
   action: click
   target:
@@ -441,12 +441,12 @@ outcomes:
 - name: ACCOUNT_TYPE_NOT_AVAILABLE
   classification: business_outcome
   message: The application did not offer that choice for this customer.
-- name: FUNDING_ACCOUNT_ID_NOT_AVAILABLE
+- name: FUNDING_ACCOUNT_NOT_AVAILABLE
   classification: business_outcome
   message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-11T17:23:20.369966Z'
-  run: discovery-0ee77cc1c6
+  at: '2026-09-12T05:32:49.193535Z'
+  run: discovery-e1a2b9c0f1
   model: claude-haiku-4-5
   goal: Open a new SAVINGS account funded from account 12345, and return the new account number
-  evidence: evidence/discovery-0ee77cc1c6
+  evidence: evidence/discovery-e1a2b9c0f1

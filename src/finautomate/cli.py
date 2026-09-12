@@ -58,9 +58,6 @@ def discover(
     secret: Annotated[
         list[str], typer.Option(help="name=value the model never sees. Repeatable.")
     ] = [],  # noqa: B006
-    expect_output: Annotated[
-        list[str], typer.Option(help="A value the capability must return. Repeatable.")
-    ] = [],  # noqa: B006
     model: Annotated[
         str, typer.Option(help=f"Which model drives discovery: {'|'.join(MODELS)}.")
     ] = DEFAULT_MODEL,
@@ -90,23 +87,29 @@ def discover(
                 evidence=evidence,
                 params=params,
                 secrets=secrets,
-                expect_outputs=tuple(expect_output),
                 model=model,
             )
             capability = run.run(goal, entry, settings.get("app", "parabank"))
         finally:
             browser.close()
 
+    # Anthropic bills a cache write at 1.25x the input rate and a cache read at 0.1x.
     rate_in, rate_out = (2, 10) if model == "sonnet" else (1, 5)
-    cost = run.tokens_in / 1e6 * rate_in + run.tokens_out / 1e6 * rate_out
+    cost = (
+        run.tokens_in * rate_in
+        + run.cache_written * rate_in * 1.25
+        + run.cache_read * rate_in * 0.10
+        + run.tokens_out * rate_out
+    ) / 1e6
     typer.echo(
-        f"{run.model}: {run.calls} calls, {run.tokens_in} in / {run.tokens_out} out "
-        f"tokens, about ${cost:.3f}"
+        f"{run.model}: {run.calls} calls, {run.tokens_in} in / {run.tokens_out} out, "
+        f"cache {run.cache_written} written / {run.cache_read} read, about ${cost:.3f}"
     )
     typer.echo(f"evidence: {evidence.dir}")
 
     if capability is None:
-        typer.secho("no capability recorded - see the evidence log", fg=typer.colors.RED)
+        why = run.complaint or "see the evidence log"
+        typer.secho(f"no capability recorded: {why}", fg=typer.colors.RED)
         raise typer.Exit(1)
 
     out.mkdir(parents=True, exist_ok=True)

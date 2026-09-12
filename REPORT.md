@@ -39,12 +39,28 @@ see.
 this layer substitutes the value on the way to the browser. It cannot type a password
 even if it decides to.
 
-**Preconditions are checked before the point of no return, not at the end.** An
-irreversible action is refused while any supplied parameter is still unset on screen. We
-found this by running discovery on a smaller model: it skipped a parameter, opened an
-account, was told at `done` that the parameter was unused, and started the flow again.
-The recording then held both attempts, so replaying it would have opened two accounts.
-Checking at `done` was too late, because the account already existed.
+**The model designs the capability's contract, not us.** Only credentials are passed in.
+It reads the values out of the goal, and at `done` it declares which of the values it
+entered a caller should be able to change, naming each one. Those become the artifact's
+typed inputs. An earlier version had a human pre-declare every parameter, which made the
+loop a puppet: the model coloured inside an interface somebody else drew, and stating a
+value in both the goal and a flag meant the two could disagree.
+
+**It is held to its own declaration.** If it names a parameter that no step actually
+sets, the run fails and writes nothing. That is not hypothetical: with the form already
+defaulting to the value the goal asked for, the model clicked straight through and
+declared a parameter it had never touched. The recording would have ignored that argument
+forever.
+
+**Recorded on two models.** Both capabilities were recorded with Haiku 4.5 and again
+with Sonnet 5 from identical goals. Both chose the same parameters; the names they gave
+them differed, and differed between two runs of the same model, which is the honest cost
+of letting the model own the contract. The exercise also caught a prompt written for one
+model behaving worse on the other, which is in `FINDINGS.md`.
+
+**One pause before the point of no return.** The first irreversible action is refused
+once, with a reminder that any field left on its default is not in the recording. It
+fires while the form is still editable, because after that click there is no way back.
 
 Bounded by guards that do not depend on the model choosing to stop: 25 steps, 300
 seconds, 200k tokens. The Anthropic SDK retries transient API failures twice on its own,
@@ -149,7 +165,7 @@ reached by changing the base URL. It found a real bug straight away: recovery wa
 consulted when a *control* could not be found. Every navigation here is followed by a
 checkpoint, so an expired session always arrived as "the confirmation never appeared"
 and was filed as a hard failure. The declared recovery had never once run.
-`evidence/replay-c7e26cfb69/` is it working.
+`evidence/replay-d04a604e52/` is it working.
 
 
 ---

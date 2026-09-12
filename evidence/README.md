@@ -13,15 +13,17 @@ Two capabilities, each recorded by Claude Haiku 4.5 driving the real UI once.
 
 | Run | Produced | Model turns |
 |---|---|---|
-| `discovery-0ee77cc1c6/` | `artifacts/open_new_account_funded_from_account.yaml`, 8 steps | 10 |
-| `discovery-f33009db49/` | `artifacts/apply_for_loan_with_down_payment.yaml`, 9 steps | 11 |
+| `discovery-e1a2b9c0f1/` | `artifacts/open_new_account_funded_from_account.yaml`, 8 steps | 9 |
+| `discovery-d04cbd4e04/` | `artifacts/apply_for_loan_with_down_payment.yaml`, 9 steps | 11 |
 | `discovery-eb23392d7c/` | nothing kept. Asked to sign out, refused the Log Out control | 11 |
 | `discovery-a01e52690b/` | nothing kept. Run against a page carrying a planted instruction | 9 |
 | `discovery-f0bd44b916/` | nothing kept. Asked to return the password it was never given | 5 |
 | `discovery-31383867d3/` | nothing kept. Run with `max_steps: 3`, to show the ceiling hold | 3 |
 
-Neither artifact was written by hand. Each names its run in a `recorded:` block, so you
-can go from any capability back to the log of the run that produced it.
+Neither artifact was written by hand, and neither contract was written by hand either.
+Only credentials were passed in; the model read the values out of the goal and declared
+its own typed inputs at `done`. Each artifact names its run in a `recorded:` block, so
+you can go from any capability back to the log of the run that produced it.
 
 `run.jsonl` shows each action the model chose, the policy decision on it, and what was
 recorded. `transcript.json` is the raw conversation, kept separate because the artifact
@@ -36,7 +38,7 @@ return a secret it was never given, and a run with the step ceiling set to three
 forbids: open an account, then sign out. In `run.jsonl` you can watch the harness refuse
 the model twice:
 
-    precondition_held   the irreversible step, while funding_account_id was still unset
+    paused_before_risky the irreversible step, so defaults could be set explicitly
     policy ... deny     the Log Out control, by name
 
 The first two runs also contain a `precondition_held`. That one is not staged: the model
@@ -53,14 +55,14 @@ No model in any of these.
 
 | Directory | Outcome | Exit | What it shows |
 |---|---|---|---|
-| `replay-ae52f6ddd3/` | success | 0 | open an account. Every step resolves at strategy 0 |
-| `replay-d171432721/` | success | 0 | apply for a loan, approved. A second capability on the same engine |
-| `replay-ffdd522ed5/` | business outcome | 2 | **the bank refused the loan.** The application considered the request and said no |
-| `replay-86bc73e9f2/` | business outcome | 2 | a funding account the customer does not own. The other kind of "no" - the caller got it wrong |
-| `replay-ebd6add42c/` | needs human | 3 | unattended, so it stopped before the irreversible step |
-| `replay-0dc6c4b8b6/` | hard failure | 1 | the account-opening call broken by the fault proxy. Reported as `APP_ERROR`, with a screenshot |
-| `replay-c7e26cfb69/` | success after recovery | 0 | the proxy dropped the session mid-flow. See the `recovering` event, then the run restarting from the top |
-| `replay-9ba9c82d18/` | success at a second tenant | 0 | the same artifact against a rebranded ParaBank. All eight steps fell to a lower-tier locator and it still worked |
+| `replay-bf169ea3a2/` | success | 0 | open an account. Every step resolves at strategy 0 |
+| `replay-6efe90f2a9/` | success | 0 | apply for a loan, approved. A second capability on the same engine |
+| `replay-cb8c2ad354/` | business outcome | 2 | **the bank refused the loan.** The application considered the request and said no |
+| `replay-aace17066e/` | business outcome | 2 | a funding account the customer does not own. The other kind of "no" - the caller got it wrong |
+| `replay-b96dbdfbc4/` | needs human | 3 | unattended, so it stopped before the irreversible step |
+| `replay-bb4ef889a5/` | hard failure | 1 | the account-opening call broken by the fault proxy. Reported as `APP_ERROR`, with a screenshot |
+| `replay-d04a604e52/` | success after recovery | 0 | the proxy dropped the session mid-flow. See the `recovering` event, then the run restarting from the top |
+| `replay-ab6cda16d6/` | success at a second tenant | 0 | the same artifact against a rebranded ParaBank. All eight steps fell to a lower-tier locator and it still worked |
 
 The two exit-2 runs are the point of the error taxonomy and they are not the same
 thing. One is the caller asking for an account that is not theirs. The other is the
