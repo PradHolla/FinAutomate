@@ -9,7 +9,9 @@ safely finish on its own.
 
 * `REPORT.md` is the design write-up.
 * `evidence/` holds one real run per outcome, with its own index.
-* `artifacts/` holds the two capabilities, both produced by a real LLM run.
+* `artifacts/` holds the two capabilities. **Both were recorded by an LLM driving
+  the real UI**, never written by hand. Each one names the run that produced it in
+  its `recorded:` block, and that run's log is in `evidence/`.
 
 ## Setup
 
@@ -90,7 +92,39 @@ Add `--dry-run` to print the plan without opening a browser.
 
 ## A second capability
 
-The same engine doing a different job. Nothing about it is special-cased.
+Both capabilities in `artifacts/` were recorded the same way: an LLM drove the real UI
+once, and we wrote down what worked. Neither was written by hand.
+
+```bash
+# recorded by the model, exactly like the first one
+uv run finautomate reset
+uv run --env-file .env finautomate discover \
+  "Apply for a loan of 1000 with a down payment of 900 from account 12345, and return the new loan account number" \
+  --param username=john \
+  --param loan_amount=1000 \
+  --param down_payment=900 \
+  --param funding_account_id=12345 \
+  --secret password=demo \
+  --expect-output new_loan_account_number
+```
+
+You do not have to run that. The result is already committed, and every artifact says
+where it came from:
+
+```yaml
+recorded:
+  run: discovery-f33009db49
+  model: claude-haiku-4-5
+  goal: Apply for a loan of 1000 with a down payment of 900 from account 12345...
+  evidence: evidence/discovery-f33009db49
+```
+
+That evidence directory holds the whole run: every action the model chose, every policy
+decision on it, and the nine steps that came out. Including a `precondition_held` event,
+where the model tried to click Apply Now before setting every parameter and the harness
+refused.
+
+Now replay it, with no model involved:
 
 ```bash
 uv run finautomate reset

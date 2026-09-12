@@ -11,10 +11,13 @@ given its secrets up front and redacts them from everything it writes.
 
 Two capabilities, each recorded by Claude Haiku 4.5 driving the real UI once.
 
-| | produced |
-|---|---|
-| `discovery-0ee77cc1c6/` | `artifacts/open_new_account_funded_from_account.yaml` - 8 steps |
-| `discovery-f33009db49/` | `artifacts/apply_for_loan_with_down_payment.yaml` - 9 steps |
+| Run | Produced | Model turns |
+|---|---|---|
+| `discovery-0ee77cc1c6/` | `artifacts/open_new_account_funded_from_account.yaml`, 8 steps | 10 |
+| `discovery-f33009db49/` | `artifacts/apply_for_loan_with_down_payment.yaml`, 9 steps | 11 |
+
+Neither artifact was written by hand. Each names its run in a `recorded:` block, so you
+can go from any capability back to the log of the run that produced it.
 
 `run.jsonl` shows each action the model chose, the policy decision on it, and what was
 recorded. `transcript.json` is the raw conversation, kept separate because the artifact
