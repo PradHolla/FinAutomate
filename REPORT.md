@@ -194,10 +194,50 @@ SUCCESS    drift warning: 8 of 8 steps needed a fallback locator
 ```
 
 Every step, including the irreversible one, found its control by a rung nobody would
-pick first. Against the original tenant, every step resolves at rung 0. That difference
-is the drift signal. Per-tenant runtime conditions come from the same place: the second
-tenant's session detector looks for a field labeled "User ID", because that is what that
-bank calls it.
+pick first. Against the original tenant, every step resolves at rung 0. Per-tenant
+runtime conditions come from the same place: the second tenant's session detector looks
+for a field labeled "User ID", because that is what that bank calls it.
+
+**When sharing is not enough: overrides.** The ladder absorbs wording. It will not
+absorb a tenant whose flow genuinely differs, and at hundreds of tenants some will. The
+answer is a sparse patch keyed by step id, merged at load in the same place tenant
+outcomes are merged today:
+
+```yaml
+capability: open_new_account_funded_from_account
+version: 1
+steps:
+  click_open_new_account:
+    target:
+      strategies: [{kind: role_name, role: link, name: Open an Account}]
+```
+
+This is designed, not built. Step ids exist to be its address, which is why they are
+stable and meaningful rather than positional. A patch may replace a step's locator
+bundle, its checkpoint, or its risk classification. It may **not** add, remove or reorder
+steps: a tenant whose sequence differs is running a different flow, and calling that an
+override would grow patches into second recordings that nobody can review. That line is
+the whole value of the mechanism.
+
+**Managing drift, not just seeing it.** The rung that resolved is a number per step, per
+tenant, per run. Steps that sat at rung 0 for months and now resolve at rung 2 tell you
+the page moved, and when. Two thresholds matter: a step that consistently falls below
+rung 0 is a re-record candidate, and a step resolving at its *last* rung is one page
+change away from failing, which is the one worth waking someone for. The response is to
+re-record against that tenant, which yields either the same artifact, meaning the drift
+was cosmetic, or an override, meaning it was real and local. We emit the signal per run
+to stdout and the evidence log and stop there. Aggregating it across tenants is a
+dashboard, and the brief is explicit about not rewarding that infrastructure.
+
+**Two version numbers, for two different readers.** `schema_version` is the file format,
+so a loader can refuse a shape it does not understand. `version` is the capability's
+contract, and it bumps when a re-record changes inputs or outputs, because that is what
+breaks a caller. A locator-only change does not bump it: the contract is identical and
+every caller is unaffected. Artifacts are files, so v1 and v2 sit side by side and a
+caller pins what it was built against. Vendor version drift, the same product at a
+different release, is the case where overrides stop being the right tool and a re-record
+is cheaper than a growing pile of patches. `target.app` names the product rather than the
+institution precisely so that judgement can be made per product rather than per tenant.
 
 ---
 
