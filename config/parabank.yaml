@@ -101,14 +101,23 @@ outcomes:
     # short, and matching one of them would work until the day it picked another.
     # The status is one word either way: Approved, or Denied.
     #
-    # We can report that it was refused, not why. The reason is plain text in a
-    # table cell, and a `read` step can only address a form control - see the Cuts
-    # section of REPORT.md.
     detect:
       kind: text_visible
       text: Denied
       match: exact
       timeout_ms: 1000
+    # Why, in the application's own words, read at the moment the refusal is seen.
+    # There are four possible wordings and this reports whichever one came back,
+    # which is the point: we are quoting the bank, not paraphrasing it.
+    explain:
+      description: the application's stated reason for refusing
+      strategies:
+        - kind: field_id
+          id: loanRequestDenied
+        - kind: anchored_role
+          role: text
+          anchor: Denied
+          position: after
 
   - name: PERMISSION_DENIED
     classification: hard_failure

@@ -113,3 +113,41 @@ def test_select_with_unknown_label_raises_option_not_found(
     select_ref = next(c for c in snapshot.controls if c.field_id == "type").ref
     with pytest.raises(OptionNotFoundError):
         surface.select(select_ref, "MONEY MARKET")
+
+
+# -- text that is not a control, but is still a value -----------------------
+
+
+def readable(surface: BrowserSurface) -> dict[str, str]:
+    """Every text holder on screen, by its element id."""
+    return {c.field_id: c.text for c in surface.observe().controls if c.role == "text"}
+
+
+def test_a_result_cell_is_readable(surface: BrowserSurface) -> None:
+    """A status, a balance, the reason a request was refused. None of these are form
+    controls, so without this a `read` step cannot address them at all."""
+    assert readable(surface)["loanStatus"] == "Denied"
+
+
+def test_a_wrapper_around_one_value_is_readable(surface: BrowserSurface) -> None:
+    """The text is inside a child element, which is where an application usually
+    puts a styled error message."""
+    assert readable(surface)["refusalReason"] == "Your available funds are too low."
+
+
+def test_a_container_holding_controls_is_not_a_value(surface: BrowserSurface) -> None:
+    """Its text is most of the page rather than one thing, and the control inside
+    it is the better handle."""
+    assert "hasAControl" not in readable(surface)
+
+
+def test_only_the_innermost_holder_is_reported(surface: BrowserSurface) -> None:
+    """`resultPanel` wraps both of the others. Reporting all three would say the
+    same text three times and make a text locator ambiguous."""
+    assert "resultPanel" not in readable(surface)
+
+
+def test_a_readable_value_can_actually_be_read(surface: BrowserSurface) -> None:
+    """The point of all of it: the ref has to work through the normal read path."""
+    cell = next(c for c in surface.observe().controls if c.field_id == "loanStatus")
+    assert surface.read(cell.ref) == "Denied"

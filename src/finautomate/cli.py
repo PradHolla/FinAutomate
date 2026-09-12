@@ -12,10 +12,12 @@ from playwright.sync_api import sync_playwright
 from pydantic import ValidationError
 
 from finautomate.artifact import (
+    Capability,
     LocatorBundle,
     Outcome,
     RoleName,
     TextVisible,
+    contract_diff,
     dump_capability,
     load_capability,
 )
@@ -62,6 +64,16 @@ def discover(
         str, typer.Option(help=f"Which model drives discovery: {'|'.join(MODELS)}.")
     ] = DEFAULT_MODEL,
     out: Annotated[Path, typer.Option(help="Where to write the capability.")] = Path("artifacts"),
+    rerecord: Annotated[
+        Path | None,
+        typer.Option(
+            help="Re-record an existing capability. Keeps its id and its parameter names "
+            "so callers survive; discovers every locator again.",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ] = None,
     headed: Annotated[bool, typer.Option(help="Show the browser.")] = False,
 ) -> None:
     """Drive a live UI with an LLM until a goal is met, then save a capability."""
@@ -71,6 +83,7 @@ def discover(
     policy = Policy.model_validate(settings["policy"])
     guards = Guards.model_validate(settings.get("guards", {}))
     params, secrets = _pairs(param, "--param"), _pairs(secret, "--secret")
+    prior = load_capability(rerecord) if rerecord else None
 
     run_id = f"discovery-{uuid.uuid4().hex[:10]}"
     evidence = Evidence(Path("evidence"), run_id, frozenset(secrets.values()))
@@ -88,6 +101,7 @@ def discover(
                 params=params,
                 secrets=secrets,
                 model=model,
+                inherit=prior,
             )
             capability = run.run(goal, entry, settings.get("app", "parabank"))
         finally:
@@ -112,10 +126,72 @@ def discover(
         typer.secho(f"no capability recorded: {why}", fg=typer.colors.RED)
         raise typer.Exit(1)
 
+    if prior is not None:
+        capability = _settle_version(prior, capability)
+
     out.mkdir(parents=True, exist_ok=True)
-    path = out / f"{capability.id}.yaml"
+    path, warning = _write_path(out, capability, rerecording=rerecord is not None)
     dump_capability(capability, path)
     typer.secho(f"recorded {len(capability.steps)} steps to {path}", fg=typer.colors.GREEN)
+    if warning:
+        typer.secho(warning, fg=typer.colors.YELLOW)
+
+
+def _artifact_path(out: Path, capability: Capability) -> Path:
+    """Where a recording is written.
+
+    v1 keeps the plain name, so nothing already pointing at it moves when locator
+    drift is re-recorded. A contract that changed gets a numbered file and the old
+    one stays exactly where its callers left it.
+    """
+    stem = capability.id if capability.version == 1 else f"{capability.id}.v{capability.version}"
+    return out / f"{stem}.yaml"
+
+
+def _write_path(out: Path, capability: Capability, *, rerecording: bool) -> tuple[Path, str]:
+    """Where to write a recording, and anything the operator needs told.
+
+    The id comes from the goal, so running discovery twice on the same goal lands on
+    the same file. Overwriting it without `--rerecord` is the one way left to break
+    every caller of that capability in silence: the names would be chosen afresh and
+    the version would still read 1. So the existing file is left alone.
+
+    The new recording is written beside it rather than thrown away. By this point the
+    run has already been paid for, and a refusal that deletes the thing you just
+    bought is its own kind of bug.
+    """
+    path = _artifact_path(out, capability)
+    if rerecording or not path.exists():
+        return path, ""
+    return path.with_suffix(".new.yaml"), (
+        f"{path} already exists and was left alone.\n"
+        "Its callers depend on the names it declares, and this run chose its own. "
+        "To keep the existing contract, re-run with:\n"
+        f"  --rerecord {path}"
+    )
+
+
+def _settle_version(prior: Capability, fresh: Capability) -> Capability:
+    """Decide a re-recorded capability's version, and say what moved.
+
+    A contract that did not change keeps its version and its filename, so fixing
+    locator drift leaves every caller alone. One that did change gets a new number
+    and a new file, so anything pinned to the old contract still has it.
+    """
+    added, removed = contract_diff(prior, fresh)
+    if not added and not removed:
+        typer.echo(f"contract: unchanged, still v{prior.version}")
+        return fresh
+
+    typer.secho(
+        f"contract changed, v{prior.version} -> v{prior.version + 1}", fg=typer.colors.YELLOW
+    )
+    for name in added:
+        typer.echo(f"  + {name}")
+    for name in removed:
+        typer.secho(f"  - {name}", fg=typer.colors.RED)
+    typer.echo(f"  callers pinned to v{prior.version} keep the file they already use")
+    return fresh.model_copy(update={"version": prior.version + 1})
 
 
 @app.command()
@@ -203,7 +279,14 @@ def replay(
             "0 means raise the request and exit.",
         ),
     ] = 0,
-    dry: Annotated[bool, typer.Option("--dry-run", help="Print the plan, touch nothing.")] = False,
+    dry: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print what this capability takes and what it would do, touch nothing. "
+            "Works with no parameters, which is how you find out what it takes.",
+        ),
+    ] = False,
     headed: Annotated[bool, typer.Option(help="Show the browser.")] = False,
 ) -> None:
     """Replay a saved capability with no LLM in the decision loop."""

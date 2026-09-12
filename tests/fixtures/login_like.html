@@ -29,5 +29,16 @@
     <input type="hidden" name="csrf" value="deadbeef" />
     <div style="display:none">This is not shown</div>
   </form>
+
+  <!-- The shapes a value lives in when it is not a form control: a result cell
+       with a stable id, a wrapper whose only job is to hold one, and a layout
+       container that also holds real controls. -->
+  <div id="resultPanel">
+    <table>
+      <tr><td><b>Status:</b></td><td id="loanStatus">Denied</td></tr>
+    </table>
+    <div id="refusalReason"><p class="error">Your available funds are too low.</p></div>
+    <div id="hasAControl">Pick one <button>Retry</button></div>
+  </div>
 </body>
 </html>

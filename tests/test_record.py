@@ -5,17 +5,21 @@ probe. If the recorder can produce a working bundle for every control in the act
 flow, discovery will too.
 """
 
+from pathlib import Path
+
 import pytest
 
 from finautomate.artifact import (
     AnchoredRole,
+    Capability,
     ElementVisible,
     FieldId,
     FieldName,
     RoleName,
     TextVisible,
+    load_capability,
 )
-from finautomate.discover import _slug, checkpoint_for, render
+from finautomate.discover import _slug, checkpoint_for, inheritable, render
 from finautomate.locate import resolve
 from finautomate.policy import Policy
 from finautomate.record import build_bundle
@@ -588,3 +592,85 @@ def test_blocking_a_control_also_blocks_the_page_behind_it() -> None:
     assert policy.check_path("/parabank/logout.htm?next=/").blocked
     assert policy.check_path("/parabank/logout.htm;jsessionid=ABC123").blocked
     assert not policy.check_path("/parabank/openaccount.htm").blocked
+
+
+# -- what a re-record hands back to the model -------------------------------
+
+
+def _reference_capability() -> Capability:
+    return load_capability(Path(__file__).parent / "fixtures" / "reference_capability.yaml")
+
+
+def test_supplied_credentials_are_not_offered_back_to_the_model() -> None:
+    """The model never names the values it was handed, so listing them would only
+    invite it to claim a parameter it does not own."""
+    takes, _ = inheritable(_reference_capability(), ["username", "password"])
+    assert "username" not in takes
+    assert "password" not in takes
+    assert "account_type" in takes
+
+
+def test_output_names_are_inherited_too() -> None:
+    """An output name breaks a caller exactly the way an input name does, and the
+    model chooses those as well."""
+    _, returns = inheritable(_reference_capability(), ["username", "password"])
+    assert returns == ["new_account_id"]
+
+
+def test_parameters_and_returned_values_are_kept_apart() -> None:
+    """A real run failed on this. Given one flat list, the model declared the output
+    name as a parameter, and was refused because no step sets it."""
+    takes, returns = inheritable(_reference_capability(), ["username", "password"])
+    assert set(takes).isdisjoint(returns)
+    assert "new_account_id" not in takes
+
+
+def test_declaration_order_is_kept() -> None:
+    """The order a reader of the old artifact saw them in."""
+    takes, _ = inheritable(_reference_capability(), ["username", "password"])
+    assert takes == ["account_type", "funding_account_id"]
+
+
+# -- what a checkpoint should wait for --------------------------------------
+
+
+def test_a_checkpoint_prefers_a_control_over_a_piece_of_text() -> None:
+    """Both appeared and both carry an element id. The link is the better wait: a
+    rebrand rewords a heading and leaves a form control alone.
+
+    Found by re-recording. Text holders carry an id, so they were winning the
+    vendor-attribute preference and a real control never got picked.
+    """
+    before = Snapshot(url="/x", title="x", anchors=[], controls=[])
+    after = Snapshot(
+        url="/x",
+        title="x",
+        anchors=[],
+        controls=[
+            ctl("t1", "text", 0, field_id="accountTable", text="Account Balance Available"),
+            ctl("l1", "link", 1, name="Open New Account", field_id="openLink"),
+        ],
+    )
+
+    checkpoint = checkpoint_for(before, after)
+
+    assert isinstance(checkpoint, ElementVisible)
+    kinds = {s.kind for s in checkpoint.target.strategies}
+    assert "role_name" in kinds, "it should be waiting for the link"
+    assert all(getattr(s, "role", "") != "text" for s in checkpoint.target.strategies)
+
+
+def test_text_is_still_used_when_nothing_actionable_appeared() -> None:
+    """A confirmation panel that is only text still has to be waitable."""
+    before = Snapshot(url="/x", title="x", anchors=[], controls=[])
+    after = Snapshot(
+        url="/x",
+        title="x",
+        anchors=[],
+        controls=[ctl("t1", "text", 0, field_id="loanStatus", text="Denied")],
+    )
+
+    checkpoint = checkpoint_for(before, after)
+
+    assert isinstance(checkpoint, ElementVisible)
+    assert any(getattr(s, "id", "") == "loanStatus" for s in checkpoint.target.strategies)

@@ -11,7 +11,13 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from finautomate.artifact import Capability, dump_capability, load_capability, referenced_params
+from finautomate.artifact import (
+    Capability,
+    contract_diff,
+    dump_capability,
+    load_capability,
+    referenced_params,
+)
 
 REFERENCE = Path(__file__).parent / "fixtures" / "reference_capability.yaml"
 
@@ -144,3 +150,54 @@ def test_enum_without_values_rejected(raw: dict[str, Any]) -> None:
     del account_type["values"]
     with pytest.raises(ValidationError, match="declares no values"):
         Capability.model_validate(raw)
+
+
+# -- what a re-record is allowed to change ----------------------------------
+
+
+def test_an_identical_contract_diffs_empty(capability: Capability) -> None:
+    """The drift case. Re-recording to fix locators must not bump the version, or
+    every caller is asked to migrate for a change that did not affect them."""
+    assert contract_diff(capability, capability) == ((), ())
+
+
+def test_a_renamed_parameter_is_reported_both_ways(capability: Capability) -> None:
+    renamed = capability.model_copy(
+        update={
+            "inputs": [
+                i.model_copy(update={"name": "source_account"})
+                if i.name == "funding_account_id"
+                else i
+                for i in capability.inputs
+            ]
+        }
+    )
+    added, removed = contract_diff(capability, renamed)
+    assert added == ("input source_account",)
+    assert removed == ("input funding_account_id",)
+
+
+def test_a_renamed_output_counts_as_a_contract_change(capability: Capability) -> None:
+    """Outputs break a caller exactly the way inputs do, and the model names those
+    too."""
+    renamed = capability.model_copy(
+        update={
+            "outputs": [o.model_copy(update={"name": "account_id"}) for o in capability.outputs]
+        }
+    )
+    added, removed = contract_diff(capability, renamed)
+    assert added == ("output account_id",)
+    assert removed == ("output new_account_id",)
+
+
+def test_an_input_traded_for_an_output_of_the_same_name(capability: Capability) -> None:
+    """Comparing bare names would call this no change at all, and it breaks every
+    caller: they now have to supply nothing and read something."""
+    traded = capability.model_copy(
+        update={
+            "outputs": [o.model_copy(update={"name": "username"}) for o in capability.outputs],
+        }
+    )
+    added, removed = contract_diff(capability, traded)
+    assert "output username" in added
+    assert "input username" not in removed, "the input is still declared, so it stays"

@@ -241,6 +241,15 @@ class Outcome(Frozen):
     message: str | None = None
     detect: Checkpoint | None = None
     """How to spot it on the page. Omitted when a step raises it via `outcomes`."""
+
+    explain: LocatorBundle | None = None
+    """Where the application states its own reason, when it gives one.
+
+    Read at the moment the outcome is detected and appended to the message, so a
+    caller learns why it was refused rather than only that it was. Optional, because
+    plenty of outcomes have nothing more to say and an outcome raised by a step has
+    no page to read."""
+
     recovery: Recovery | None = None
 
     @model_validator(mode="after")
@@ -289,6 +298,8 @@ class Recorded(Frozen):
     model: str
     goal: str
     evidence: str | None = None
+    supersedes: str | None = None
+    """The run this one re-recorded, so a version chain can be followed back."""
 
 
 class Capability(Frozen):
@@ -368,6 +379,28 @@ class Capability(Frozen):
 def referenced_params(value: str | None) -> list[str]:
     """Parameter names referenced by a step value, e.g. "{{member_id}}" -> ["member_id"]."""
     return re.findall(PARAM_PATTERN, value) if value else []
+
+
+def contract_diff(prior: Capability, fresh: Capability) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Names a caller binds to, added and removed between two recordings.
+
+    Steps, locators and checkpoints are deliberately not compared. A re-record is
+    expected to change those, and the version is about the contract, not the route
+    taken through the screens.
+    """
+    was, now = _contract(prior), _contract(fresh)
+    return tuple(sorted(now - was)), tuple(sorted(was - now))
+
+
+def _contract(capability: Capability) -> set[str]:
+    """Every name a caller binds to, tagged by which side of the call it is on.
+
+    Tagged because an input and an output may share a name, and trading one for the
+    other breaks a caller in a way an untagged comparison would report as no change.
+    """
+    return {f"input {i.name}" for i in capability.inputs} | {
+        f"output {o.name}" for o in capability.outputs
+    }
 
 
 def load_capability(path: Path) -> Capability:

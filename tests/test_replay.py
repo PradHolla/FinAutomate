@@ -6,12 +6,14 @@ checkable without a running application.
 """
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 from pydantic import SecretStr, ValidationError
 
 from finautomate.artifact import (
     Capability,
+    FieldId,
     LocatorBundle,
     Outcome,
     Recovery,
@@ -21,15 +23,20 @@ from finautomate.artifact import (
     TextVisible,
     load_capability,
 )
+from finautomate.evidence import Evidence
 from finautomate.replay import (
     ParameterError,
+    Replay,
     bind,
     detected,
     dry_run,
     render,
+    signature,
     with_runtime_outcomes,
 )
 from finautomate.result import EXIT_CODES, BusinessOutcome, HardFailure, NeedsHuman, Success
+from finautomate.session import Intervention
+from finautomate.surface.browser import BrowserSurface
 from finautomate.surface.models import Control, Snapshot, TextAnchor
 
 REFERENCE = Path(__file__).parent / "fixtures" / "reference_capability.yaml"
@@ -69,6 +76,21 @@ def test_dry_run_validates_without_touching_a_browser(capability) -> None:  # ty
     assert any("RISKY" in line for line in lines), "the irreversible step must be visible"
     with pytest.raises(ParameterError):
         dry_run(capability, {"username": "john"})
+
+
+def test_dry_run_with_no_arguments_prints_the_contract(capability) -> None:  # type: ignore[no-untyped-def]
+    """Asking what a capability takes must not require already knowing."""
+    lines = dry_run(capability, {})
+    takes = next(line for line in lines if line.strip().startswith("takes:"))
+    for name in ARGS:
+        assert name in takes
+
+
+def test_signature_marks_secrets_and_spells_out_enums(capability) -> None:  # type: ignore[no-untyped-def]
+    takes = signature(capability)[0]
+    assert "password*" in takes, "a caller has to see which value is a secret"
+    assert "account_type=CHECKING|SAVINGS" in takes, "an enum's choices are unguessable"
+    assert "username," in takes, "a plain input carries no marker"
 
 
 # -- secrets ----------------------------------------------------------------
@@ -444,3 +466,142 @@ def test_an_interstitial_is_recoverable_and_a_refusal_is_not() -> None:
     assert detected(outcomes, "recoverable", refused) is None, "a refusal is not retryable"
     assert (denied := detected(outcomes, "hard_failure", refused)) is not None
     assert denied.name == "PERMISSION_DENIED"
+
+
+# -- quoting the application, not paraphrasing it ---------------------------
+
+
+class OneScreen:
+    """A surface that shows one screen and can read from it. Enough for an outcome
+    that has to look at the page it just landed on."""
+
+    def __init__(self, snapshot: Snapshot) -> None:
+        self.snapshot = snapshot
+
+    def observe(self) -> Snapshot:
+        return self.snapshot
+
+    def read(self, ref: str) -> str:
+        return self.snapshot.control(ref).text
+
+    def navigate(self, path: str) -> None: ...
+    def click(self, ref: str) -> None: ...
+    def type(self, ref: str, text: str) -> None: ...
+    def select(self, ref: str, label: str) -> None: ...
+
+
+def denied_screen(reason: str) -> Snapshot:
+    return Snapshot(
+        url="/parabank/requestloan.htm",
+        title="Loan Request Processed",
+        anchors=[TextAnchor(text="Status:", doc_order=0)],
+        controls=[
+            Control(ref="r1", role="text", field_id="loanStatus", text="Denied", doc_order=1),
+            Control(ref="r2", role="text", field_id="loanRequestDenied", text=reason, doc_order=2),
+        ],
+    )
+
+
+def refusal(explain: LocatorBundle | None) -> Outcome:
+    return Outcome(
+        name="LOAN_DENIED",
+        classification="business_outcome",
+        message="The bank declined the loan request.",
+        detect=TextVisible(kind="text_visible", text="Denied", match="exact"),
+        explain=explain,
+    )
+
+
+def loan_capability(outcome: Outcome) -> Capability:
+    return Capability(
+        id="loan",
+        version=1,
+        title="t",
+        description="d",
+        target=Target(app="parabank", entry="/parabank/index.htm"),
+        steps=[Step(id="apply", action="navigate")],
+        success=TextVisible(kind="text_visible", text="Approved"),
+        outcomes=[outcome],
+    )
+
+
+WHERE_THE_REASON_IS = LocatorBundle(
+    description="the application's stated reason",
+    strategies=[FieldId(kind="field_id", id="loanRequestDenied")],
+)
+
+
+def engine_for(outcome: Outcome, screen: Snapshot, tmp_path: Path) -> Replay:
+    return Replay(
+        loan_capability(outcome),
+        cast(BrowserSurface, OneScreen(screen)),
+        Evidence(tmp_path, "r", frozenset()),
+    )
+
+
+def test_a_refusal_is_reported_in_the_applications_own_words(tmp_path: Path) -> None:
+    """This application has four refusal wordings depending on which of funds and
+    down payment fell short. Quoting whichever came back beats paraphrasing, and it
+    is the difference between an answer a caller can act on and a shrug."""
+    reason = "We cannot grant a loan in that amount with your available funds."
+    engine = engine_for(refusal(WHERE_THE_REASON_IS), denied_screen(reason), tmp_path)
+
+    answer = engine._business("LOAN_DENIED", "apply")
+
+    assert answer.message == f"The bank declined the loan request. {reason}"
+
+
+def test_a_second_wording_is_quoted_just_as_faithfully(tmp_path: Path) -> None:
+    """Nothing may be hardcoded to one of the four."""
+    reason = "You do not have sufficient funds for the given down payment."
+    engine = engine_for(refusal(WHERE_THE_REASON_IS), denied_screen(reason), tmp_path)
+
+    assert reason in engine._business("LOAN_DENIED", "apply").message
+
+
+def test_an_outcome_with_nothing_to_quote_still_reports(tmp_path: Path) -> None:
+    """Most outcomes have no reason on the page, and one raised by a step has no
+    page at all. Absent is normal, not an error."""
+    engine = engine_for(refusal(None), denied_screen("ignored"), tmp_path)
+
+    assert engine._business("LOAN_DENIED", "apply").message == "The bank declined the loan request."
+
+
+def test_a_reason_the_page_does_not_show_is_left_out(tmp_path: Path) -> None:
+    """The locator is declared but resolves to nothing. Better a shorter message
+    than a crash while reporting an answer."""
+    bare = Snapshot(url="/x", title="x", anchors=[], controls=[])
+    engine = engine_for(refusal(WHERE_THE_REASON_IS), bare, tmp_path)
+
+    assert engine._business("LOAN_DENIED", "apply").message == "The bank declined the loan request."
+
+
+# -- the audit trail of a handover ------------------------------------------
+
+
+def test_the_log_counts_what_the_person_actually_did(tmp_path: Path) -> None:
+    """The intervention is read from disk before the person's clicks are written into
+    it, so its own copy still says zero. The log must not repeat that: an audit trail
+    that undercounts a human is worse than one that never mentions them."""
+    engine = engine_for(refusal(None), denied_screen("x"), tmp_path)
+    stale = Intervention(
+        id="r",
+        run="r",
+        capability="loan",
+        step="apply",
+        reason="held",
+        status="handled",
+        operator="pnh",
+    )
+    assert stale.human_actions == [], "the stale copy is the whole point"
+
+    engine._control_returned(
+        stale,
+        NeedsHuman(capability="loan", version=1, step="apply", reason="held"),
+        "r",
+        tmp_path / "r.json",
+        1,
+    )
+
+    logged = (tmp_path / "r" / "run.jsonl").read_text(encoding="utf-8")
+    assert '"human_actions": 1' in logged

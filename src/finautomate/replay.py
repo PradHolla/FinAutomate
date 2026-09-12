@@ -13,7 +13,14 @@ from typing import Any
 from playwright.sync_api import Error as PlaywrightError
 from pydantic import SecretStr
 
-from finautomate.artifact import Capability, Classification, Outcome, Recovery, Step
+from finautomate.artifact import (
+    Capability,
+    Classification,
+    LocatorBundle,
+    Outcome,
+    Recovery,
+    Step,
+)
 from finautomate.checkpoint import satisfied, wait_for
 from finautomate.evidence import Evidence
 from finautomate.handover import start_watching
@@ -378,15 +385,37 @@ class Replay:
         seen: list[dict[str, Any]] = []
         start_watching(self.surface.page, seen)
         decided = self._await_decision(request.id)
-        self._log_human_actions(request.id, seen)
+        recorded = self._log_human_actions(request.id, seen)
+        self._archive(request.id)
 
         if decided is None:
             return self._nobody_answered(step, stopped, request.id, path)
-        return self._control_returned(decided, stopped, request.id, path)
+        return self._control_returned(decided, stopped, request.id, path, recorded)
 
-    def _log_human_actions(self, intervention_id: str, seen: list[dict[str, Any]]) -> None:
-        if not seen or self.interventions is None:
+    def _archive(self, intervention_id: str) -> None:
+        """Copy the settled request into this run's evidence.
+
+        The operator's inbox is a working directory that gets cleared. The evidence
+        directory is the audit record and has to stand on its own, so the request goes
+        in it too - read back from disk, so the copy carries what the person did.
+        """
+        if self.interventions is None:
             return
+        settled = self.interventions.read(intervention_id)
+        (self.evidence.dir / "intervention.json").write_text(
+            settled.model_dump_json(indent=2), encoding="utf-8"
+        )
+
+    def _log_human_actions(self, intervention_id: str, seen: list[dict[str, Any]]) -> int:
+        """File what the person did, and report how much that was.
+
+        The count is returned rather than read back off the request: the request was
+        read from disk before these were written into it, so its own copy still says
+        zero. An audit trail that undercounts what a human did is worse than one that
+        does not mention them.
+        """
+        if not seen or self.interventions is None:
+            return 0
         self.interventions.record_actions(intervention_id, seen)
         for action in seen:
             self.evidence.event(
@@ -395,6 +424,7 @@ class Replay:
                 target=action.get("target", ""),
                 value=action.get("value", ""),
             )
+        return len(seen)
 
     def _nobody_answered(
         self, step: Step, stopped: NeedsHuman, intervention_id: str, path: Path
@@ -418,7 +448,12 @@ class Replay:
         )
 
     def _control_returned(
-        self, decided: Intervention, stopped: NeedsHuman, intervention_id: str, path: Path
+        self,
+        decided: Intervention,
+        stopped: NeedsHuman,
+        intervention_id: str,
+        path: Path,
+        human_actions: int,
     ) -> Result | None:
         self._announce(f"  control returned by {decided.operator or 'operator'}: {decided.status}")
         self.evidence.event(
@@ -426,7 +461,7 @@ class Replay:
             intervention=intervention_id,
             decision=decided.status,
             operator=decided.operator,
-            human_actions=len(decided.human_actions),
+            human_actions=human_actions,
         )
         if decided.status == "rejected":
             why = decided.note or "no reason given"
@@ -537,9 +572,22 @@ class Replay:
         self.evidence.event("detected", outcome=declared.name)
         return f"{declared.name}: {declared.message or 'the screen matched this condition'}"
 
+    def _explained(self, where: LocatorBundle) -> str:
+        """The application's own words about an outcome, if they are on screen.
+
+        Missing is normal rather than an error: the same outcome can be raised by a
+        step, where there is no page saying anything.
+        """
+        found = resolve(where, self.surface.observe())
+        if found.control is None:
+            return ""
+        return self.surface.read(found.control.ref).strip()
+
     def _business(self, name: str, step_id: str) -> BusinessOutcome:
         declared = next((o for o in self.cap.outcomes if o.name == name), None)
         message = declared.message if declared and declared.message else name
+        if declared and declared.explain and (why := self._explained(declared.explain)):
+            message = f"{message} {why}"
         self.evidence.event("business_outcome", outcome=name, step=step_id, message=message)
         return BusinessOutcome(
             capability=self.cap.id,
@@ -583,14 +631,41 @@ class Replay:
         return getattr(checkpoint.target, "description", "the expected control")
 
 
+def signature(capability: Capability) -> list[str]:
+    """The capability's parameter list, on one line.
+
+    The model names these itself, and it does not name them the same way twice, so a
+    caller needs somewhere shorter than the YAML to read them off. Markers are only
+    explained when one is actually used.
+    """
+    rendered: list[str] = []
+    for spec in capability.inputs:
+        marked = spec.name + ("*" if spec.secret else "") + ("" if spec.required else "?")
+        # A constraint bind() already enforces, so printing it is not a promise
+        # made twice.
+        choices = "|".join(spec.values) if spec.values else ""
+        rendered.append(f"{marked}={choices}" if choices else marked)
+
+    lines = ["  takes: " + (", ".join(rendered) or "nothing")]
+    if any(i.secret for i in capability.inputs):
+        lines.append("         * never logged or written to disk")
+    if any(not i.required for i in capability.inputs):
+        lines.append("         ? optional")
+    return lines
+
+
 def dry_run(capability: Capability, supplied: dict[str, str]) -> list[str]:
     """What a replay would do, without opening a browser.
 
-    Parameters are still validated, so a bad argument is caught here rather than
-    halfway through a real run.
+    Arguments are validated when there are any, so a bad one is caught here rather
+    than halfway through a real run. With none, the caller is asking what this
+    capability takes rather than claiming to have it, so the plan prints instead of
+    a complaint about the arguments they did not give.
     """
-    bind(capability, supplied)
+    if supplied:
+        bind(capability, supplied)
     lines = [f"{capability.id} v{capability.version}: {capability.title}"]
+    lines += signature(capability)
     for step in capability.steps:
         target = step.target.description if step.target else capability.target.entry
         flag = "  [RISKY - needs a person]" if step.risk == "risky" else ""

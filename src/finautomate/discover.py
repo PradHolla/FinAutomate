@@ -9,6 +9,7 @@ each step is recorded against the snapshot it was taken from.
 import re
 import textwrap
 import time
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -37,8 +38,8 @@ from finautomate.artifact import (
 from finautomate.evidence import Evidence
 from finautomate.policy import Decision, Guards, Policy
 from finautomate.record import build_bundle
-from finautomate.surface.browser import BrowserSurface, ControlNotFoundError, OptionNotFoundError
-from finautomate.surface.models import Control, Snapshot
+from finautomate.surface.browser import ControlNotFoundError, OptionNotFoundError
+from finautomate.surface.models import Control, Snapshot, Surface
 
 SETTLE_SECONDS = 6.0
 
@@ -295,17 +296,22 @@ def _appeared(before: Snapshot, after: Snapshot) -> Checkpoint | None:
     known = {_identity(c) for c in before.controls}
     fresh = [c for c in after.controls if _identity(c) not in known]
 
-    bundles = [
-        bundle
+    made = [
+        (control, bundle)
         for control in fresh
         if (bundle := build_bundle(control, after, f"the {control.role} that appeared"))
     ]
-    if not bundles:
+    if not made:
         return None
-    # Prefer a vendor attribute over the institution's own wording; it survives a
-    # rebrand. Otherwise the first in reading order, an arbitrary but fine choice.
-    durable = next((b for b in bundles if _has_attribute_strategy(b)), None)
-    return ElementVisible(kind="element_visible", target=durable or bundles[0])
+    # Something you could act on beats a piece of text. A heading is reworded by a
+    # rebrand; a form control is not. Text holders carry an element id, so without
+    # this they win the preference below every time and a real control never gets
+    # picked - which is what happened, and cost a re-record to notice.
+    actionable = [pair for pair in made if pair[0].role != "text"] or made
+    # Then prefer a vendor attribute over the institution's own wording. Otherwise the
+    # first in reading order, an arbitrary but fine choice.
+    durable = next((b for _, b in actionable if _has_attribute_strategy(b)), None)
+    return ElementVisible(kind="element_visible", target=durable or actionable[0][1])
 
 
 def _new_text(before: Snapshot, after: Snapshot) -> Checkpoint | None:
@@ -369,6 +375,26 @@ def _slug(text: str, action: str) -> str:
     return f"{action}_{'_'.join(kept) or action}".strip("_")
 
 
+def inheritable(prior: Capability, supplied: Iterable[str]) -> tuple[list[str], list[str]]:
+    """Names a re-record should reuse: the prior contract, minus what the caller
+    already passes in. Parameters first, then returned values.
+
+    Kept apart rather than listed together. Handed one flat list, a real run read the
+    output name as a parameter it was meant to declare, declared it, and was refused
+    for declaring something no step sets.
+
+    Credentials are supplied on the command line and filtered out of the model's
+    declaration anyway, so listing them would only invite it to claim a name it does
+    not own. Declaration order is kept, because that is the order a reader of the old
+    artifact saw them in.
+    """
+    given = set(supplied)
+    return (
+        [i.name for i in prior.inputs if i.name not in given],
+        [o.name for o in prior.outputs if o.name not in given],
+    )
+
+
 def _tool_results(answers: list[tuple[str, str]]) -> MessageParam:
     """Every tool_use block must be answered or the next request is rejected."""
     return {
@@ -384,7 +410,7 @@ class Discovery:
     def __init__(
         self,
         *,
-        surface: BrowserSurface,
+        surface: Surface,
         client: Anthropic,
         policy: Policy,
         guards: Guards,
@@ -392,6 +418,7 @@ class Discovery:
         params: dict[str, str],
         secrets: dict[str, str],
         model: str = DEFAULT_MODEL,
+        inherit: Capability | None = None,
     ) -> None:
         self.surface = surface
         self.client = client
@@ -401,6 +428,10 @@ class Discovery:
         self.params = params
         self.secrets = secrets
         self.model, self.model_params = MODELS[model]
+        self.inherit = inherit
+        """A prior recording whose id and names this run continues. Identity and
+        names only: every locator, checkpoint and step is discovered again, which is
+        the entire reason to re-record."""
         self.steps: list[Step] = []
         self.outputs: list[Output] = []
         self.used_ids: set[str] = set()
@@ -572,6 +603,21 @@ class Discovery:
             lines.append(f"  {name} = {value!r}")
         for name in self.secrets:
             lines.append(f"  {name} = SECRET (use type_secret, you will not be shown it)")
+        if self.inherit is not None:
+            takes, returns = inheritable(self.inherit, [*self.params, *self.secrets])
+            lines += ["", "This re-records a capability that callers already use."]
+            if takes:
+                lines += ["It takes these parameters:", *(f"  {n}" for n in takes)]
+            if returns:
+                lines += [
+                    "It returns these values, each named with `output_name` on a read:",
+                    *(f"  {n}" for n in returns),
+                ]
+            lines += [
+                "",
+                "Use those exact names for the same values, so the callers keep working. "
+                "Only add a new name if you find a value they do not cover.",
+            ]
         return "\n".join(lines)
 
     def _ask(self, messages: list[MessageParam]) -> list[ToolUseBlock]:
@@ -874,12 +920,15 @@ class Discovery:
             for n in [*self.params, *self.secrets, *self.declared]
             if n in used
         ]
+        # Generalize before slugging, or a parameterized goal slugs as if it only
+        # ever did the one thing this run did.
+        fresh_id = _slug(self._generalize(goal), "capability").replace("capability_", "")
+        prior = self.inherit
         return Capability(
-            # Generalize before slugging, or a parameterized goal slugs as if it
-            # only ever did the one thing this run did.
-            id=_slug(self._generalize(goal), "capability").replace("capability_", "")
-            or "capability",
-            version=1,
+            id=prior.id if prior else (fresh_id or "capability"),
+            # Held, not bumped. Whether the contract actually moved is decided by
+            # comparing it against the prior one, once this is built.
+            version=prior.version if prior else 1,
             # Generalized, not `_stable`-trimmed: trimming cuts prose mid-sentence,
             # generalizing keeps it whole and true for every caller.
             title=textwrap.shorten(self._generalize(goal), width=TITLE_CHARS, placeholder=" ..."),
@@ -896,5 +945,6 @@ class Discovery:
                 model=self.model,
                 goal=goal,
                 evidence=str(self.evidence.dir),
+                supersedes=prior.recorded.run if prior and prior.recorded else None,
             ),
         )

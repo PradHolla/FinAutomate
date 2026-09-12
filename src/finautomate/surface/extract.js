@@ -150,6 +150,34 @@
 
       if (!isVisible(child)) continue;
 
+      // A text holder with a stable id is readable: a table cell, a status, the
+      // reason a request was refused. Without this a `read` can only reach a form
+      // control, so a balance or a decline reason has no locator at all.
+      //
+      // Only the innermost one. An element holding a control, or holding another
+      // element that has an id, is a layout container: its text is most of the page
+      // rather than one value, and the thing inside it is the better handle.
+      const id = child.getAttribute("id");
+      if (id && !child.querySelector("input, select, textarea, button, a[href], [id]")) {
+        const text = normalizeWs(child.textContent);
+        if (text && text.length <= 200) {
+          const ref = `c${controlIndex++}`;
+          child.setAttribute("data-fa-ref", ref);
+          controls.push({
+            ref,
+            role: "text",
+            name: "",
+            value: "",
+            field_name: "",
+            field_id: id,
+            text,
+            options: [],
+            enabled: true,
+            doc_order: docOrder++,
+          });
+        }
+      }
+
       collectAnchor(child);
       walk(child);
     }
