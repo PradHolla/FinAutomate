@@ -76,7 +76,7 @@ in the root README.
 
 | | |
 |---|---|
-| `replay-0d5fb2c4f4/` | a person took over the live session and finished the step by hand |
+| `replay-1c12f3b2a1/` | a person took over the live session and finished the step by hand |
 
 The automation stopped at the irreversible step, wrote an intervention request, and
 waited. A person clicked the button themselves in the same browser window, then ran
@@ -86,7 +86,5 @@ waited. A person clicked the button themselves in the same browser window, then 
 stopped, what was on screen, who decided, and what they did while they held it -
 `click` on `input "Open New Account"`, captured by the page itself.
 
-**This one is older than the rest.** It was recorded before the capability was
-re-recorded, so it names an earlier capability id. The handover mechanism has not
-changed; re-running it needs a person at a keyboard, and the record of what actually
-happened is worth more than a matching id.
+Recorded against the current capability, by a person, on 2026-09-12. The step it skipped
+shows no locator at all in the run log, because no locator was used: a human clicked it.
