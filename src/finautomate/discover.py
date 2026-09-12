@@ -109,6 +109,9 @@ Rules:
   phrase that will read the same on every future run - "Account Opened" is right.
   Never include an account number, amount, date, or anything else specific to this
   run: that text becomes the permanent success check for every future caller.
+- If the goal asks for something you cannot get from these screens, call `stuck` and
+  say why. Do not call `done` on a goal you did not achieve: `done` records a reusable
+  capability, and one that quietly returns nothing is worse than an honest failure.
 - Call `stuck` rather than guessing if you cannot make progress."""
 
 
@@ -859,9 +862,9 @@ class Discovery:
         if unset := self._unset_declared(self.steps):
             self.evidence.event("declaration_unmet", parameters=list(unset))
             self.complaint = (
-                f"declared {', '.join(unset)} as parameters but no step sets them, so the "
-                "recording would ignore those arguments. The form was probably left on a "
-                "default."
+                f"declared {', '.join(unset)} as parameters, but no step sets them, so a "
+                "capability taking those arguments would ignore them. Usually the field was "
+                "left on its default; sometimes the value was never on screen at all."
             )
             return None
         steps = self._parameterize(self.steps)

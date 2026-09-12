@@ -1,0 +1,14 @@
+{"at": "2026-09-12T18:02:06.411+00:00", "kind": "model_action", "step": 1, "tool": "type_text", "input": {"ref": "c8", "description": "Username field", "text": "john"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-12T18:02:06.412+00:00", "kind": "policy", "step": 1, "tool": "type_text", "control": "Username field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T18:02:06.445+00:00", "kind": "recorded_step", "id": "type_text_username", "action": "type", "risk": "safe"}
+{"at": "2026-09-12T18:02:08.150+00:00", "kind": "model_action", "step": 2, "tool": "type_secret", "input": {"ref": "c9", "description": "Password field", "parameter": "password"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-12T18:02:08.151+00:00", "kind": "policy", "step": 2, "tool": "type_secret", "control": "Password field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T18:02:08.189+00:00", "kind": "recorded_step", "id": "type_secret_password", "action": "type", "risk": "safe"}
+{"at": "2026-09-12T18:02:10.323+00:00", "kind": "model_action", "step": 3, "tool": "click", "input": {"ref": "c10", "description": "Log In button"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-12T18:02:10.323+00:00", "kind": "policy", "step": 3, "tool": "click", "control": "Log In button", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T18:02:10.379+00:00", "kind": "recorded_step", "id": "click_log_in", "action": "click", "risk": "safe"}
+{"at": "2026-09-12T18:02:10.400+00:00", "kind": "recorded_checkpoint", "step": "click_log_in", "wait_for": "the link that appeared"}
+{"at": "2026-09-12T18:02:22.543+00:00", "kind": "model_action", "step": 4, "tool": "done", "input": {"summary": "Successfully logged in to the banking application with username 'john' and password '<redacted>'", "success_text": "John Smith", "outputs": ["password_used"], "parameters": [{"name": "password_used", "value": "<redacted>"}]}, "url": "http://localhost:8080/parabank/overview.htm"}
+{"at": "2026-09-12T18:02:22.544+00:00", "kind": "declared_parameters", "names": ["password_used"]}
+{"at": "2026-09-12T18:02:22.544+00:00", "kind": "run_finished", "outcome": "done", "steps_recorded": 3, "model_calls": 4, "tokens_in": 9740, "tokens_out": 1862}
+{"at": "2026-09-12T18:02:22.545+00:00", "kind": "declaration_unmet", "parameters": ["password_used"]}
