@@ -34,15 +34,16 @@ Everything below assumes it is running on port 8080.
 
 ## Configuration
 
-**Replay needs no API key.** That is the point of the system: the model works out how to
-do a job once and is never used to do it again. If you only want to watch a capability
-run, skip this section.
-
-Discovery does need one, because it drives the model:
+Discovery drives the model, so it needs a key. Put it in a `.env` file at the repo root,
+which is what `uv run --env-file .env` below reads:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
 ```
+
+**Replay needs no key at all**, which is the point of the system: the model works out how
+to do a job once and is never used to do it again. So a replay costs nothing and runs
+offline from the model, while a discovery run costs a few cents.
 
 Pick the model with `--model sonnet` (the default) or `--model haiku`. Both artifacts in
 this repo were recorded with Haiku 4.5, at about five to seven cents a run against
@@ -108,8 +109,8 @@ uv run --env-file .env finautomate discover \
   --expect-output new_loan_account_number
 ```
 
-You do not have to run that. The result is already committed, and every artifact says
-where it came from:
+The result of that run is also committed, so you can compare what you get against what
+we got. Every artifact says which run produced it:
 
 ```yaml
 recorded:
