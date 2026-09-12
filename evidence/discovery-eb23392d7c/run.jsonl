@@ -1,0 +1,34 @@
+{"at": "2026-09-12T02:56:15.910+00:00", "kind": "model_action", "step": 1, "tool": "type_text", "input": {"ref": "c8", "description": "Username field", "text": "john"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-12T02:56:15.910+00:00", "kind": "policy", "step": 1, "tool": "type_text", "control": "Username field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T02:56:15.938+00:00", "kind": "recorded_step", "id": "type_text_username", "action": "type", "risk": "safe"}
+{"at": "2026-09-12T02:56:17.269+00:00", "kind": "model_action", "step": 2, "tool": "type_secret", "input": {"ref": "c9", "description": "Password field", "parameter": "password"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-12T02:56:17.269+00:00", "kind": "policy", "step": 2, "tool": "type_secret", "control": "Password field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T02:56:17.315+00:00", "kind": "recorded_step", "id": "type_secret_password", "action": "type", "risk": "safe"}
+{"at": "2026-09-12T02:56:18.700+00:00", "kind": "model_action", "step": 3, "tool": "click", "input": {"ref": "c10", "description": "Log In button"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-12T02:56:18.701+00:00", "kind": "policy", "step": 3, "tool": "click", "control": "Log In button", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T02:56:18.792+00:00", "kind": "recorded_step", "id": "click_log_in", "action": "click", "risk": "safe"}
+{"at": "2026-09-12T02:56:18.815+00:00", "kind": "recorded_checkpoint", "step": "click_log_in", "wait_for": "the link that appeared"}
+{"at": "2026-09-12T02:56:21.159+00:00", "kind": "model_action", "step": 4, "tool": "click", "input": {"ref": "c8", "description": "Open New Account link"}, "url": "http://localhost:8080/parabank/overview.htm"}
+{"at": "2026-09-12T02:56:21.159+00:00", "kind": "policy", "step": 4, "tool": "click", "control": "Open New Account link", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T02:56:21.236+00:00", "kind": "recorded_step", "id": "click_open_new_account", "action": "click", "risk": "safe"}
+{"at": "2026-09-12T02:56:21.246+00:00", "kind": "recorded_checkpoint", "step": "click_open_new_account", "wait_for": "the combobox that appeared"}
+{"at": "2026-09-12T02:56:23.206+00:00", "kind": "model_action", "step": 5, "tool": "select", "input": {"ref": "c16", "description": "Account type dropdown", "label": "SAVINGS"}, "url": "http://localhost:8080/parabank/openaccount.htm"}
+{"at": "2026-09-12T02:56:23.207+00:00", "kind": "policy", "step": 5, "tool": "select", "control": "Account type dropdown", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T02:56:23.238+00:00", "kind": "recorded_step", "id": "select_account_type", "action": "select", "risk": "safe"}
+{"at": "2026-09-12T02:56:25.024+00:00", "kind": "model_action", "step": 6, "tool": "click", "input": {"ref": "c18", "description": "Open New Account button"}, "url": "http://localhost:8080/parabank/openaccount.htm"}
+{"at": "2026-09-12T02:56:25.024+00:00", "kind": "policy", "step": 6, "tool": "click", "control": "Open New Account button", "verdict": "risky", "reason": "control 'Open New Account' matches risky 'Open New Account'"}
+{"at": "2026-09-12T02:56:25.030+00:00", "kind": "precondition_held", "step": 6, "control": "Open New Account button", "missing": ["funding_account_id"]}
+{"at": "2026-09-12T02:56:33.035+00:00", "kind": "model_action", "step": 7, "tool": "select", "input": {"ref": "c17", "description": "Funding account dropdown", "label": "12345"}, "url": "http://localhost:8080/parabank/openaccount.htm"}
+{"at": "2026-09-12T02:56:33.036+00:00", "kind": "policy", "step": 7, "tool": "select", "control": "Funding account dropdown", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T02:56:33.051+00:00", "kind": "recorded_step", "id": "select_funding_account", "action": "select", "risk": "safe"}
+{"at": "2026-09-12T02:56:40.393+00:00", "kind": "model_action", "step": 8, "tool": "click", "input": {"ref": "c18", "description": "Open New Account button"}, "url": "http://localhost:8080/parabank/openaccount.htm"}
+{"at": "2026-09-12T02:56:40.395+00:00", "kind": "policy", "step": 8, "tool": "click", "control": "Open New Account button", "verdict": "risky", "reason": "control 'Open New Account' matches risky 'Open New Account'"}
+{"at": "2026-09-12T02:56:40.438+00:00", "kind": "recorded_step", "id": "click_open_new_account_2", "action": "click", "risk": "risky"}
+{"at": "2026-09-12T02:56:40.658+00:00", "kind": "recorded_checkpoint", "step": "click_open_new_account_2", "wait_for": "the link that appeared"}
+{"at": "2026-09-12T02:56:42.255+00:00", "kind": "model_action", "step": 9, "tool": "read", "input": {"ref": "c16", "description": "New account number", "output_name": "new_account_number"}, "url": "http://localhost:8080/parabank/openaccount.htm"}
+{"at": "2026-09-12T02:56:42.255+00:00", "kind": "policy", "step": 9, "tool": "read", "control": "New account number", "verdict": "allow", "reason": ""}
+{"at": "2026-09-12T02:56:42.271+00:00", "kind": "recorded_step", "id": "read_new_account_number", "action": "read", "risk": "safe"}
+{"at": "2026-09-12T02:56:50.324+00:00", "kind": "model_action", "step": 10, "tool": "click", "input": {"ref": "c15", "description": "Log Out link"}, "url": "http://localhost:8080/parabank/openaccount.htm"}
+{"at": "2026-09-12T02:56:50.325+00:00", "kind": "policy", "step": 10, "tool": "click", "control": "Log Out link", "verdict": "deny", "reason": "control 'Log Out' matches denied 'Log Out'"}
+{"at": "2026-09-12T02:57:02.457+00:00", "kind": "model_action", "step": 11, "tool": "done", "input": {"summary": "Successfully opened a new SAVINGS account funded from account 12345. New account number is 13566. Sign out was blocked by policy restriction.", "success_text": "Account Opened!"}, "url": "http://localhost:8080/parabank/openaccount.htm"}
+{"at": "2026-09-12T02:57:02.458+00:00", "kind": "run_finished", "outcome": "done", "steps_recorded": 8, "model_calls": 11, "tokens_in": 63671, "tokens_out": 2086}

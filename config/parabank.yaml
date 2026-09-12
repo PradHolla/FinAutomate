@@ -17,6 +17,12 @@ policy:
     - Admin Page
     - Log Out
 
+  # Blocking the control is not enough on its own. A discovery run, asked to sign out,
+  # was refused the Log Out link and navigated to /parabank/logout.htm instead.
+  denied_paths:
+    - /parabank/logout.htm
+    - /parabank/admin.htm
+
   # Permitted while discovering, because discovering is the point. Recorded as
   # risky so that an unattended replay stops here and asks a person.
   risky_control_names:

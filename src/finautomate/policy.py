@@ -38,6 +38,14 @@ class Policy(BaseModel):
     denied_control_names: tuple[str, ...] = ()
     """Controls the agent must never touch. Administration screens, sign-out."""
 
+    denied_paths: tuple[str, ...] = ()
+    """Paths the agent must never navigate to.
+
+    Not redundant with `denied_control_names`. A discovery run found the hole: told to
+    sign out, the model was refused the Log Out control and then navigated straight to
+    `/parabank/logout.htm` instead. Blocking a control does nothing if the page behind
+    it is one URL away."""
+
     risky_control_names: tuple[str, ...] = ()
     """Controls that create, move, or destroy something. Allowed during discovery,
     but flagged so unattended replay stops and asks a person."""
@@ -65,6 +73,10 @@ class Policy(BaseModel):
             return Decision("deny", "absolute URLs are refused; navigation is path-relative")
         if not path.startswith(self.allowed_path_prefix):
             return Decision("deny", f"{path!r} is outside {self.allowed_path_prefix!r}")
+        target = path.split("?")[0].split(";")[0].casefold()
+        for denied in self.denied_paths:
+            if denied.casefold() in target:
+                return Decision("deny", f"path {path!r} matches denied {denied!r}")
         return Decision("allow", "")
 
 
