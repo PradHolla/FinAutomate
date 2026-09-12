@@ -1,17 +1,8 @@
-"""What the agent is allowed to do, checked before every single action.
+"""What the agent is allowed to do, checked before every action.
 
-Two decisions are encoded here that are worth defending.
-
-**The config is the authority on risk, not the model.** It is tempting to let the
-model classify its own actions as safe or dangerous, and it would usually get it
-right. But an agent that self-reports "this one is fine" is exactly the control
-that fails when it matters. The model's opinion is recorded as a hint and compared
-against the rule; the rule wins.
-
-**Risk is a property of the control, not the action type.** "Click" is not
-dangerous. Clicking the button that opens a bank account is. So the rule matches on
-what the control is called, which is also what a person reading an audit log would
-recognize.
+The config decides what is risky, not the model: its own opinion is recorded as a
+hint but the rule wins. Risk is a property of the named control, not the action
+type, since "click" is not dangerous but clicking the button that opens an account is.
 """
 
 from dataclasses import dataclass
@@ -40,19 +31,16 @@ class Policy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     allowed_path_prefix: str
-    """Requests outside this path are refused. Keeps a wandering agent inside the
-    one application it was pointed at."""
+    """Requests outside this path are refused."""
 
     allowed_actions: frozenset[str] = frozenset({"navigate", "click", "type", "select", "read"})
 
     denied_control_names: tuple[str, ...] = ()
-    """Controls the agent must never touch, whatever it thinks. Administration
-    screens and sign-out live here."""
+    """Controls the agent must never touch. Administration screens, sign-out."""
 
     risky_control_names: tuple[str, ...] = ()
-    """Controls that create, move, or destroy something. Permitted during discovery
-    because that is the point of discovery, but recorded as risky so that unattended
-    replay stops and asks a person."""
+    """Controls that create, move, or destroy something. Allowed during discovery,
+    but flagged so unattended replay stops and asks a person."""
 
     def decide(self, action: str, control_name: str = "", role: str = "") -> Decision:
         if action not in self.allowed_actions:
@@ -63,9 +51,8 @@ class Policy(BaseModel):
             if denied.casefold() in name and name:
                 return Decision("deny", f"control {control_name!r} matches denied {denied!r}")
 
-        # A link goes somewhere; it does not commit anything. In this application
-        # the nav link and the submit button share the name "Open New Account", so
-        # matching on the name alone marks a page visit as irreversible.
+        # A link only navigates. Here the nav link and the submit button share the
+        # name "Open New Account", so matching on name alone would flag a page visit.
         if role != "link":
             for risky in self.risky_control_names:
                 if risky.casefold() in name and name:
@@ -82,8 +69,7 @@ class Policy(BaseModel):
 
 
 class Guards(BaseModel):
-    """Limits on the run itself. A loop that talks to a paid API needs a ceiling
-    that does not depend on the model choosing to stop."""
+    """Limits on the run itself, independent of the model choosing to stop."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

@@ -1,21 +1,9 @@
-"""Turning a recorded locator into one control on screen.
+"""Turns a recorded locator into one control on screen.
 
-This is where the artifact meets reality, and it is deliberately a pure function
-over a `Snapshot`. No browser, no page, no I/O - so every rule below can be tested
-in milliseconds against a handmade snapshot.
-
-Two rules that carry most of the weight:
-
-  * **First unique match wins.** Strategies are tried in the recorded order and the
-    first one matching exactly one control is used.
-  * **Ambiguity is failure, not a coin flip.** A strategy matching two controls
-    resolves nothing and falls through. Clicking one of two candidates is how
-    automation quietly does the wrong thing in production.
-
-Every attempt is recorded, including the ones that missed. That trail is both the
-debuggable error the caller gets on failure and the drift signal on success: a step
-that used to resolve at strategy 0 and now resolves at strategy 2 is telling you the
-page changed under you.
+A pure function over a `Snapshot`: no browser, no I/O, so every rule here is
+testable against a handmade snapshot. Strategies are tried in the recorded order;
+the first one matching exactly one control wins, and every attempt is kept for the
+error message and as a drift signal.
 """
 
 import re
@@ -38,11 +26,8 @@ _WHITESPACE = re.compile(r"\s+")
 
 
 def normalize(text: str) -> str:
-    """Case-fold and collapse whitespace.
-
-    Applied to both sides of every text comparison, so a page that gains an extra
-    space or changes capitalization does not break a locator.
-    """
+    """Case-fold and collapse whitespace, so an extra space or a case change
+    doesn't break a locator."""
     return _WHITESPACE.sub(" ", text).strip().casefold()
 
 
@@ -79,10 +64,7 @@ class Resolution:
     @property
     def used_fallback(self) -> bool:
         """True when the preferred strategy missed and a lower one caught it.
-
-        Not an error - the ladder did its job - but worth surfacing, because it is
-        the earliest warning that the page has drifted.
-        """
+        Not an error, but the earliest sign the page has drifted."""
         return self.strategy_index is not None and self.strategy_index > 0
 
 
@@ -94,6 +76,7 @@ def resolve(bundle: LocatorBundle, snapshot: Snapshot) -> Resolution:
         if len(found) == 1:
             attempts.append(Attempt(index, strategy.kind, refs))
             return Resolution(found[0], index, strategy.kind, tuple(attempts))
+        # Two matches is a failure, not a coin flip between them.
         note = "no match" if not found else f"ambiguous, {len(found)} matches"
         attempts.append(Attempt(index, strategy.kind, refs, note))
     return Resolution(None, None, None, tuple(attempts))
@@ -115,11 +98,6 @@ def text_present(text: str, mode: MatchMode, snapshot: Snapshot) -> bool:
     )
 
 
-# --------------------------------------------------------------------------
-# One function per strategy kind
-# --------------------------------------------------------------------------
-
-
 def _candidates(strategy: Strategy, snapshot: Snapshot) -> list[Control]:
     match strategy:
         case RoleName():
@@ -131,8 +109,7 @@ def _candidates(strategy: Strategy, snapshot: Snapshot) -> list[Control]:
         case AnchoredRole():
             return _anchored(strategy, snapshot)
         case FieldName():
-            # Attribute values are compared exactly. They are identifiers, not prose,
-            # so normalizing them would be wrong.
+            # Compared exactly: field names are identifiers, not prose.
             return [c for c in snapshot.controls if c.field_name and c.field_name == strategy.name]
         case FieldId():
             return [c for c in snapshot.controls if c.field_id and c.field_id == strategy.id]
@@ -141,23 +118,14 @@ def _candidates(strategy: Strategy, snapshot: Snapshot) -> list[Control]:
                 c for c in snapshot.controls if text_matches(c.text, strategy.text, strategy.match)
             ]
         case _:
-            # Reached only if a strategy kind is added above and not handled here,
-            # or if something that is not a Strategy is passed in. Both used to
-            # return None silently and blow up somewhere unrelated.
+            # Exhaustiveness check: a new Strategy kind must be handled above.
             assert_never(strategy)
 
 
 def _anchored(strategy: AnchoredRole, snapshot: Snapshot) -> list[Control]:
-    """The control of the right role nearest to a piece of text.
-
-    "Nearest" is measured in reading order, not pixels. Reading order survives a
-    restyle, and it is the one ordering that exists on a desktop control tree too.
-
-    If the anchor text appears more than once, each occurrence contributes its own
-    nearest control. They are deduplicated, so several anchors pointing at the same
-    control still resolve; several anchors pointing at different controls stay
-    ambiguous and the strategy correctly fails.
-    """
+    """The control of the right role nearest to a piece of text, measured in
+    reading order rather than pixels. Anchors are deduplicated by the control they
+    land on, so anchors that disagree on the control stay ambiguous."""
     hits: dict[str, Control] = {}
     for anchor in snapshot.anchors:
         if not text_matches(anchor.text, strategy.anchor, strategy.match):

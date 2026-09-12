@@ -34,14 +34,39 @@ extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = [
-    "E",    # pycodestyle
-    "F",    # pyflakes
-    "I",    # isort
-    "UP",   # pyupgrade - keeps us on modern syntax
-    "B",    # bugbear
-    "SIM",  # simplify
-    "RUF",  # ruff-specific
+    "E",      # pycodestyle
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade, keeps us on modern syntax
+    "B",      # bugbear
+    "SIM",    # simplify
+    "RUF",    # ruff-specific
+    "C901",   # cyclomatic complexity
+    "PLR0912",# too many branches
+    "PLR0915",# too many statements
+    "PLR2004",# magic value in a comparison
+    "RET",    # unnecessary branches around a return
+    "ARG",    # unused arguments
 ]
+ignore = [
+    # Long, specific messages at the raise site are the point here: they are read by
+    # an operator or fed back to the model. Moving them into exception classes would
+    # make them worse.
+    "TRY003",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.lint.pylint]
+max-branches = 12
+max-statements = 50
+
+[tool.ruff.lint.per-file-ignores]
+# Typer builds the CLI out of long annotated signatures; that is the framework.
+"src/finautomate/cli.py" = ["PLR0913"]
+# Tests say the quantity out loud on purpose.
+"tests/*" = ["PLR2004"]
 
 [tool.mypy]
 python_version = "3.14"

@@ -1,8 +1,8 @@
 """The browser driver: fills `Snapshot` from a live Playwright page.
 
-This module owns the DOM. Nothing above `models.py` should ever need to know an
-element attribute is called `data-fa-ref` - that is this file's private
-implementation of "ref", not part of the `Surface` contract.
+This module owns the DOM. Nothing above `models.py` needs to know an element
+attribute is called `data-fa-ref` - that's this file's own idea of "ref", not
+part of the `Surface` contract.
 """
 
 from pathlib import Path
@@ -13,9 +13,8 @@ from finautomate.surface.models import Snapshot
 
 _EXTRACT_JS = (Path(__file__).parent / "extract.js").read_text(encoding="utf-8")
 
-# Kept small and duplicated rather than shared with extract.js: `read` only ever
-# needs the current value or text of one already-located element, not a full
-# re-walk of the page.
+# Kept separate from extract.js: `read` only needs the value of one already
+# located element, not a full re-walk of the page.
 _VALUE_JS = """el => {
     if (el.tagName === 'SELECT') {
         const opt = el.options[el.selectedIndex];
@@ -36,12 +35,9 @@ class ControlNotFoundError(Exception):
 
 
 class OptionNotFoundError(Exception):
-    """Raised when a select's options do not include the requested label.
-
-    Distinct from `ControlNotFoundError` on purpose: this means the dropdown is
-    there but the app is not offering that choice, which callers need to treat
-    as a business outcome rather than a broken locator.
-    """
+    """Raised when a select's options do not include the requested label. Distinct
+    from `ControlNotFoundError`: the dropdown is there, the app just isn't
+    offering that choice, which callers treat as a business outcome."""
 
     def __init__(self, ref: str, label: str, available_labels: list[str]) -> None:
         super().__init__(
@@ -61,14 +57,12 @@ class BrowserSurface:
 
     @property
     def page(self) -> Page:
-        """For evidence capture only - screenshots and traces. Anything that acts on
-        the page goes through the six methods above, or the Surface contract is a
-        polite fiction."""
+        """For evidence capture only - screenshots and traces. Anything that acts
+        goes through the six methods above."""
         return self._page
 
     def observe(self) -> Snapshot:
-        # Only that a document exists and is parsed - deliberately not "the app has
-        # finished working", which is not something the browser can tell us.
+        # Only that a document exists and is parsed, not that the app is done working.
         self._page.wait_for_load_state("domcontentloaded")
         data: dict[str, object] = self._page.evaluate(_EXTRACT_JS)
         return Snapshot.model_validate(data)
@@ -106,9 +100,5 @@ class BrowserSurface:
             raise ControlNotFoundError(ref)
         return locator
 
-    # There is deliberately no settle-after-action here. Waiting for the network to
-    # go idle looks right and is not: measured against the real app, it returns
-    # before the script that swaps the panels has run, so the caller sees the old
-    # page. Actions act; `checkpoint.wait_for` waits for the condition the artifact
-    # declared. That also keeps every browser-specific wait primitive out of the
-    # Surface contract, so a desktop driver inherits the same waiting logic.
+    # There is deliberately no settle-after-action here: waiting for the network
+    # to go idle returns before this app finishes swapping its panels.

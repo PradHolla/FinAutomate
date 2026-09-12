@@ -1,23 +1,13 @@
 """Running a recorded capability. No model, ever.
 
-This is the production path: the thing an AI agent triggers when it wants a job
-done. It reads the artifact, resolves each control the recorded way, and reports one
-of four outcomes.
-
-Two rules the engine holds to:
-
-**Nothing is retried unless the artifact said it could be.** Recovery is declared
-per capability, with a bounded attempt count. Generic retry-on-anything is how
-automation quietly hammers a production system while looking like it is working.
-
-**A risky step stops an unattended run.** The artifact marks the one action that
-creates something real; running it without a person is not a decision this engine
-gets to make.
+Nothing is retried unless the artifact declares it, and a risky step always stops
+an unattended run.
 """
 
 import re
 import time
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Error as PlaywrightError
@@ -27,7 +17,7 @@ from finautomate.artifact import Capability, Classification, Outcome, Recovery, 
 from finautomate.checkpoint import satisfied, wait_for
 from finautomate.evidence import Evidence
 from finautomate.handover import start_watching
-from finautomate.locate import explain, resolve
+from finautomate.locate import Resolution, explain, resolve
 from finautomate.result import (
     BusinessOutcome,
     HardFailure,
@@ -48,14 +38,7 @@ def detected(
 ) -> Outcome | None:
     """The first declared outcome of this class whose detector holds on this screen.
 
-    Pure, so error classification can be tested against a handmade snapshot in
-    milliseconds - it is the part of the engine most worth being sure about.
-
-    First-declared wins, and that ordering is the artifact's decision to make. In
-    this application an expired session and a genuine server error render the same
-    page, so nothing can tell them apart by looking. The capability lists the
-    recoverable one first and bounds its retries: try once, and if the condition is
-    not actually transient the bound turns it into the hard failure it always was.
+    First-declared wins. The ordering is the artifact's decision, not this function's.
     """
     for declared in outcomes:
         if declared.classification != classification or declared.detect is None:
@@ -68,20 +51,8 @@ def detected(
 def with_runtime_outcomes(capability: Capability, declared: Sequence[Outcome]) -> Capability:
     """Add the target application's runtime conditions to a recorded capability.
 
-    A discovery run can only write down what it saw, and on a healthy application
-    nothing goes wrong - so no recording will ever declare a session timeout or an
-    error page. Asking the model to imagine them instead would turn a guess into a
-    retry policy pointed at a bank's systems, which is the opposite of the rule this
-    system is built on: people and config decide risk, the model does not.
-
-    So they come from tenant config, and that turns out to be where they belonged
-    anyway. "This app's session dies after fifteen minutes" is a fact about the
-    application, not about one flow through it - every capability recorded against
-    it needs the same clause, and two institutions running the same product can
-    reasonably answer differently.
-
-    The capability wins any name it already declares. What it recorded about its own
-    screens is more specific than a blanket rule about the app.
+    These come from tenant config, not the model: people and config decide risk.
+    The capability keeps priority for any outcome name it already declares.
     """
     known = {o.name for o in capability.outcomes}
     extra = [o for o in declared if o.name not in known]
@@ -123,10 +94,7 @@ def bind(capability: Capability, supplied: dict[str, str]) -> dict[str, str | Se
 def render(template: str, bound: dict[str, str | SecretStr]) -> str:
     """Substitute `{{name}}`. Secrets are unwrapped here and nowhere else.
 
-    The returned string may hold a password, so it goes straight to the browser. It
-    is never logged: `Evidence` is constructed with the secret values and redacts
-    them from anything written, so a mistake here is caught downstream rather than
-    relied upon not to happen.
+    The result may hold a password. It is never logged.
     """
 
     def swap(match: re.Match[str]) -> str:
@@ -134,6 +102,22 @@ def render(template: str, bound: dict[str, str | SecretStr]) -> str:
         return value.get_secret_value() if isinstance(value, SecretStr) else value
 
     return PARAM.sub(swap, template)
+
+
+def _waiting_banner(
+    step_id: str, reason: str, request: Intervention, path: Path, seconds: int
+) -> str:
+    rule = "=" * 74
+    return (
+        f"\n{rule}\nWAITING FOR A PERSON - held at {step_id}\n{rule}\n{reason}\n"
+        f"\n  screenshot : {request.screenshot}"
+        f"\n  request    : {path}"
+        f"\n  waiting    : up to {seconds}s. The browser stays open.\n"
+        "\nIn another terminal, choose one:\n"
+        f"\n  uv run finautomate resolve {request.id} --approve   # let the automation do it"
+        f"\n  uv run finautomate resolve {request.id} --handled   # you did it yourself"
+        f"\n  uv run finautomate resolve {request.id} --reject    # do not proceed\n"
+    )
 
 
 class Replay:
@@ -154,16 +138,13 @@ class Replay:
         self.attended = attended
         self.interventions = interventions
         self.wait_seconds = wait_seconds
-        # A run that pauses for a person has to say so. Everything below writes to
-        # the evidence log for the record; this is the channel for the person.
+        # The channel for a person; evidence.event() is the channel for the record.
         self._announce = announce or (lambda _message: None)
         self.records: list[StepRecord] = []
         self.outputs: dict[str, str] = {}
         self.recoveries: dict[str, int] = {}
         self._skip_next = False
         self.session_lost = False
-
-    # -- the run ------------------------------------------------------------
 
     def run(self, supplied: dict[str, str]) -> Result:
         bound = bind(self.cap, supplied)
@@ -183,11 +164,7 @@ class Replay:
                 step = self.cap.steps[index]
                 outcome = self._step(step, bound)
                 if isinstance(outcome, Recovery):
-                    # Back to the entry point, not just back to step zero. The old
-                    # version jumped to the first step without reloading, and only
-                    # worked because this application happens to leave a login form
-                    # on its error page. Going through the front door works whatever
-                    # the application decided to show.
+                    # Recovery restarts from the entry point, not step zero.
                     self.surface.navigate(self.cap.target.entry)
                     index = 0
                     continue
@@ -195,8 +172,7 @@ class Replay:
                     return self._finish(outcome, started)
                 index += 1
         except PlaywrightError as err:
-            # The application is unreachable, or the browser gave up. A caller gets
-            # a hard failure naming the step, not a traceback from three layers down.
+            # Report a hard failure naming the step, not a raw traceback.
             step_id = self.records[-1].id if self.records else "navigate"
             return self._finish(
                 self._fail(
@@ -221,28 +197,14 @@ class Replay:
             started,
         )
 
-    # -- one step -----------------------------------------------------------
-
     def _step(self, step: Step, bound: dict[str, str | SecretStr]) -> Result | Recovery | None:
-        """None to carry on, a Recovery to jump, or a Result to stop."""
+        """None to carry on, a Recovery to restart, or a Result to stop."""
         began = time.monotonic()
 
         if step.risk == "risky" and not self.attended:
-            reason = (
-                f"{step.id} is marked irreversible and this run is unattended. "
-                f"It would have: {step.target.description if step.target else step.action}."
-            )
-            self.evidence.event("risky_step_held", step=step.id, reason=reason)
-            held = self._escalate(step, reason, kind="risky_step")
-            if held is not None:
+            if (held := self._hold_for_person(step)) is not None:
                 return held
-            # A person approved it, or did it themselves. Either way the lease is
-            # back with us, so fall through and carry on.
-            if self._skip_next:
-                self._skip_next = False
-                self.records.append(
-                    StepRecord(id=step.id, action=step.action, recovered_from="performed by human")
-                )
+            if self._done_by_person(step):
                 return None
 
         if step.action == "navigate":
@@ -252,22 +214,52 @@ class Replay:
         assert step.target is not None  # the schema guarantees this for these actions
         snapshot = self.surface.observe()
         found = resolve(step.target, snapshot)
-
         if found.control is None:
-            if (answer := self._classify(step, snapshot)) is not None:
-                return answer
-            return self._fail(
-                step.id,
-                expected=step.target.description,
-                observed=self._diagnose(snapshot, explain(step.target, found)),
-            )
+            return self._unresolved(step, snapshot, found)
 
+        if (stopped := self._apply(step, found.control.ref, bound)) is not None:
+            return stopped
+
+        self._record(step, found, began)
+        return self._verify(step)
+
+    def _hold_for_person(self, step: Step) -> Result | None:
+        """Stop an unattended run at an irreversible step. None once control is back."""
+        reason = (
+            f"{step.id} is marked irreversible and this run is unattended. "
+            f"It would have: {step.target.description if step.target else step.action}."
+        )
+        self.evidence.event("risky_step_held", step=step.id, reason=reason)
+        return self._escalate(step, reason, kind="risky_step")
+
+    def _done_by_person(self, step: Step) -> bool:
+        """Whether the operator performed this step themselves, so we skip it."""
+        if not self._skip_next:
+            return False
+        self._skip_next = False
+        self.records.append(
+            StepRecord(id=step.id, action=step.action, recovered_from="performed by human")
+        )
+        return True
+
+    def _unresolved(self, step: Step, snapshot: Snapshot, found: Resolution) -> Result | Recovery:
+        assert step.target is not None
+        if (answer := self._classify(step, snapshot)) is not None:
+            return answer
+        return self._fail(
+            step.id,
+            expected=step.target.description,
+            observed=self._diagnose(snapshot, explain(step.target, found)),
+        )
+
+    def _apply(self, step: Step, ref: str, bound: dict[str, str | SecretStr]) -> Result | None:
+        """Perform the action. A Result means stop; None means it worked."""
+        assert step.target is not None
         try:
-            self._act(step, found.control.ref, bound)
+            self._act(step, ref, bound)
         except OptionNotFoundError as err:
-            # The control was found; the application simply is not offering this
-            # choice. That distinction is the whole point - a missing dropdown is a
-            # broken page, a missing option is the application answering.
+            # A missing dropdown is a broken page. A dropdown that is present but
+            # offers no such option is the application answering.
             if name := step.outcomes.get("option_not_found"):
                 return self._business(name, step.id)
             return self._fail(
@@ -279,7 +271,9 @@ class Replay:
             return self._fail(
                 step.id, expected=step.target.description, observed="it vanished before the action"
             )
+        return None
 
+    def _record(self, step: Step, found: Resolution, began: float) -> None:
         self.records.append(
             StepRecord(
                 id=step.id,
@@ -299,38 +293,29 @@ class Replay:
             fallback=found.used_fallback,
         )
 
-        if step.expect is not None:
-            settled = wait_for(self.surface, step.expect)
-            after = settled if settled is not None else self.surface.observe()
+    def _verify(self, step: Step) -> Result | Recovery | None:
+        """Wait for the step's checkpoint, then ask what the application said.
 
-            # Checked whether or not the checkpoint held, and that is the point.
-            # A checkpoint asks "did the thing I expected appear?"; a declared
-            # outcome asks "what did the application say?". The second outranks the
-            # first, because a checkpoint can be satisfied by the wrong screen.
-            #
-            # This is not hypothetical. The loan capability's checkpoint had, as its
-            # fourth rung, "the link after the text Status:" - correct on the screen
-            # it was recorded from, and also present on the refusal screen, where it
-            # matched a navigation link instead. The run reported success and
-            # returned "Home" as a loan account number. The recorder could not have
-            # known: it only ever saw the approved page.
-            if (declared := detected(self.cap.outcomes, "business_outcome", after)) is not None:
-                return self._business(declared.name, step.id)
+        Checked either way: a checkpoint can be satisfied by the wrong screen.
+        """
+        if step.expect is None:
+            return None
 
-            if settled is None:
-                # A checkpoint that never held is the other way a declared condition
-                # arrives. Recovery used to be consulted only when a control could
-                # not be found, which sounds like the same thing and is not: every
-                # navigation in this flow is followed by a checkpoint, so an expired
-                # session always surfaced here and was filed as a hard failure.
-                if (jump := self._try_recover(step, after)) is not None:
-                    return jump
-                return self._fail(
-                    step.id,
-                    expected=f"after this step: {self._describe(step.expect)}",
-                    observed=self._diagnose(after, "it never appeared before the timeout"),
-                )
-        return None
+        settled = wait_for(self.surface, step.expect)
+        after = settled if settled is not None else self.surface.observe()
+
+        if (declared := detected(self.cap.outcomes, "business_outcome", after)) is not None:
+            return self._business(declared.name, step.id)
+        if settled is not None:
+            return None
+
+        if (jump := self._try_recover(step, after)) is not None:
+            return jump
+        return self._fail(
+            step.id,
+            expected=f"after this step: {self._describe(step.expect)}",
+            observed=self._diagnose(after, "it never appeared before the timeout"),
+        )
 
     def _act(self, step: Step, ref: str, bound: dict[str, str | SecretStr]) -> None:
         if step.action == "click":
@@ -345,16 +330,8 @@ class Replay:
                 if output.from_step == step.id:
                     self.outputs[output.name] = value
 
-    # -- handing over to a person -------------------------------------------
-
     def _escalate(self, step: Step, reason: str, *, kind: str) -> Result | None:
-        """Raise an intervention. Returns a Result to stop, or None to carry on.
-
-        With no store configured, or no time to wait, this is what the engine did
-        before: report that a person is needed and exit. Given both, it becomes a
-        real handover - the browser stays open on the same page, the lease passes to
-        a person, what they do is recorded, and control comes back.
-        """
+        """Raise an intervention. A Result stops the run; None means control came back."""
         request = Intervention(
             id=self.evidence.run_id,
             run=self.evidence.run_id,
@@ -379,73 +356,72 @@ class Replay:
         self.evidence.event(
             "handed_to_human", intervention=request.id, step=step.id, file=str(path)
         )
-        self._announce(
-            "\n"
-            + "=" * 74
-            + f"\nWAITING FOR A PERSON - held at {step.id}\n"
-            + "=" * 74
-            + f"\n{reason}\n"
-            f"\n  screenshot : {request.screenshot}"
-            f"\n  request    : {path}"
-            f"\n  waiting    : up to {self.wait_seconds}s. The browser stays open.\n"
-            "\nIn another terminal, choose one:\n"
-            f"\n  uv run finautomate resolve {request.id} --approve   # let the automation do it"
-            f"\n  uv run finautomate resolve {request.id} --handled   # you did it yourself"
-            f"\n  uv run finautomate resolve {request.id} --reject    # do not proceed\n"
-        )
+        self._announce(_waiting_banner(step.id, reason, request, path, self.wait_seconds))
 
-        # The lease is now held by a person and the automation does nothing but
-        # watch. It is watching in both senses: waiting for the decision, and
-        # recording what they do so the run has no gap in its audit trail.
+        # The lease is now with the person. Record what they do so the run has no gap
+        # in its audit trail.
         seen: list[dict[str, Any]] = []
         start_watching(self.surface.page, seen)
         decided = self._await_decision(request.id)
-
-        if seen:
-            self.interventions.record_actions(request.id, seen)
-            for action in seen:
-                self.evidence.event(
-                    "human_action",
-                    did=action.get("kind", ""),
-                    target=action.get("target", ""),
-                    value=action.get("value", ""),
-                )
+        self._log_human_actions(request.id, seen)
 
         if decided is None:
-            if self.session_lost:
-                self.evidence.event("session_closed_during_handover", intervention=request.id)
-                return HardFailure(
-                    capability=self.cap.id,
-                    version=self.cap.version,
-                    steps=self.records,
-                    step=step.id,
-                    expected="the browser session to stay open for the operator",
-                    observed="the window was closed, so the session could not be handed back",
-                )
-            self.evidence.event("handover_timed_out", intervention=request.id)
-            return stopped.model_copy(
-                update={
-                    "reason": f"{reason} No operator responded within {self.wait_seconds}s.",
-                    "intervention": str(path),
-                }
+            return self._nobody_answered(step, stopped, request.id, path)
+        return self._control_returned(decided, stopped, request.id, path)
+
+    def _log_human_actions(self, intervention_id: str, seen: list[dict[str, Any]]) -> None:
+        if not seen or self.interventions is None:
+            return
+        self.interventions.record_actions(intervention_id, seen)
+        for action in seen:
+            self.evidence.event(
+                "human_action",
+                did=action.get("kind", ""),
+                target=action.get("target", ""),
+                value=action.get("value", ""),
             )
 
+    def _nobody_answered(
+        self, step: Step, stopped: NeedsHuman, intervention_id: str, path: Path
+    ) -> Result:
+        if self.session_lost:
+            self.evidence.event("session_closed_during_handover", intervention=intervention_id)
+            return HardFailure(
+                capability=self.cap.id,
+                version=self.cap.version,
+                steps=self.records,
+                step=step.id,
+                expected="the browser session to stay open for the operator",
+                observed="the window was closed, so the session could not be handed back",
+            )
+        self.evidence.event("handover_timed_out", intervention=intervention_id)
+        return stopped.model_copy(
+            update={
+                "reason": f"{stopped.reason} No operator responded within {self.wait_seconds}s.",
+                "intervention": str(path),
+            }
+        )
+
+    def _control_returned(
+        self, decided: Intervention, stopped: NeedsHuman, intervention_id: str, path: Path
+    ) -> Result | None:
         self._announce(f"  control returned by {decided.operator or 'operator'}: {decided.status}")
         self.evidence.event(
             "control_returned",
-            intervention=request.id,
+            intervention=intervention_id,
             decision=decided.status,
             operator=decided.operator,
             human_actions=len(decided.human_actions),
         )
         if decided.status == "rejected":
-            declined = decided.note or "no reason given"
+            why = decided.note or "no reason given"
             return stopped.model_copy(
                 update={
-                    "reason": f"An operator declined this step: {declined}",
+                    "reason": f"An operator declined this step: {why}",
                     "intervention": str(path),
                 }
             )
+        # `handled` means the person did the step themselves, so skip it.
         self._skip_next = decided.status == "handled"
         return None
 
@@ -456,14 +432,8 @@ class Replay:
         baseline = self.surface.observe()
         noticed = False
         while time.monotonic() < deadline:
-            # The offer being made is control of *this* session. If the operator
-            # closes the window, there is nothing left to hand back and no reason to
-            # keep waiting - so say so immediately rather than sitting out the whole
-            # timeout and failing later for a reason that looks unrelated.
-            #
-            # `is_closed()` alone is not enough: it reports a page closed through the
-            # protocol, and a window the operator quits kills the process instead, so
-            # the flag never gets set. Poking the session is what actually tells us.
+            # If the operator closed the window there is nothing left to hand back.
+            # `is_closed()` misses a quit process, so poke the session instead.
             if not self._session_alive():
                 self.session_lost = True
                 return None
@@ -471,11 +441,8 @@ class Replay:
             if not current.open:
                 return current
 
-            # Noticing the screen has moved is not the same as deciding the step is
-            # done. Only a named operator gets to decide that, because the record of
-            # who approved an irreversible action is the point. But saying nothing
-            # while someone works in the browser, waiting for a signal we never
-            # asked for, is how this feature goes unused.
+            # The screen moving is not the same as the operator deciding, but nudge
+            # them once we notice, so they know to say so.
             if not noticed and self._screen_moved(baseline):
                 noticed = True
                 self._announce(
@@ -501,19 +468,10 @@ class Replay:
             return False
         return True
 
-    # -- recovery -----------------------------------------------------------
-
     def _classify(self, step: Step, snapshot: Snapshot) -> Result | Recovery | None:
         """What the screen says about why this step could not proceed.
 
-        A business outcome first, then a recoverable condition, then nothing - and
-        that order is the decision, not an accident.
-
-        A business outcome is the application's final answer. "The loan was denied"
-        is a result the caller asked for, and it is not going to change if we try
-        again. Checking recovery first would let a transient-looking detector win
-        over a definitive answer, and the retry would re-submit a loan application.
-        Answers beat retries.
+        Checks a business outcome before a recoverable one: an answer beats a retry.
         """
         if (answer := detected(self.cap.outcomes, "business_outcome", snapshot)) is not None:
             return self._business(answer.name, step.id)
@@ -534,21 +492,15 @@ class Replay:
         return declared.recovery
 
     def _diagnose(self, snapshot: Snapshot, fallback: str) -> str:
-        """Let the artifact name a failure it declared how to spot.
+        """Let the artifact name a failure it declared how to spot, if it can.
 
-        A capability can declare an outcome classified `hard_failure` with a
-        detector - "if you see this, the application has broken". Nothing read those
-        until now, so the detector was decoration and the report said only that the
-        expected thing was missing. Naming the condition is the difference between a
-        caller filing a bug against us and filing one against the application.
+        Names the failure as the application's, not ours.
         """
         declared = detected(self.cap.outcomes, "hard_failure", snapshot)
         if declared is None:
             return fallback
         self.evidence.event("detected", outcome=declared.name)
         return f"{declared.name}: {declared.message or 'the screen matched this condition'}"
-
-    # -- results ------------------------------------------------------------
 
     def _business(self, name: str, step_id: str) -> BusinessOutcome:
         declared = next((o for o in self.cap.outcomes if o.name == name), None)

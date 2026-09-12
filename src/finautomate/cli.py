@@ -342,43 +342,51 @@ def resolve(
     )
 
 
+COLORS = {
+    "success": typer.colors.GREEN,
+    "business_outcome": typer.colors.YELLOW,
+    "needs_human": typer.colors.YELLOW,
+    "hard_failure": typer.colors.RED,
+}
+
+
+def _detail(result: Any) -> list[str]:
+    """The lines specific to one kind of outcome."""
+    if result.kind == "success":
+        return [f"  {name} = {value!r}" for name, value in result.outputs.items()]
+    if result.kind == "business_outcome":
+        return [f"  {result.outcome}: {result.message}"]
+    if result.kind == "hard_failure":
+        return [
+            f"  step      : {result.step}",
+            f"  expected  : {result.expected}",
+            f"  observed  : {result.observed}",
+            f"  screenshot: {result.screenshot}",
+        ]
+    lines = [f"  held at {result.step}", f"  {result.reason}"]
+    if not result.intervention:
+        lines.append(
+            "\n  Nobody was asked, because this run was not waiting for anyone."
+            "\n  To hand the live session to a person instead, add:"
+            "\n      --wait-for-human 300 --headed"
+        )
+    return lines
+
+
 def _report(result: Any) -> None:
-    colors = {
-        "success": typer.colors.GREEN,
-        "business_outcome": typer.colors.YELLOW,
-        "needs_human": typer.colors.YELLOW,
-        "hard_failure": typer.colors.RED,
-    }
     for record in result.steps:
         flag = "  <- fallback" if record.used_fallback else ""
         tier = f"[{record.strategy_index}] {record.strategy_kind}"
         typer.echo(f"  {record.id:<32} {record.action:<8} {tier}{flag}")
 
     typer.secho(
-        f"\n{result.kind.upper()} in {result.duration_ms}ms", fg=colors[result.kind], bold=True
+        f"\n{result.kind.upper()} in {result.duration_ms}ms", fg=COLORS[result.kind], bold=True
     )
-    if result.kind == "success":
-        for name, value in result.outputs.items():
-            typer.echo(f"  {name} = {value!r}")
-    elif result.kind == "business_outcome":
-        typer.echo(f"  {result.outcome}: {result.message}")
-    elif result.kind == "needs_human":
-        typer.echo(f"  held at {result.step}")
-        typer.echo(f"  {result.reason}")
-        if not result.intervention:
-            typer.echo(
-                "\n  Nobody was asked, because this run was not waiting for anyone."
-                "\n  To hand the live session to a person instead, add:"
-                "\n      --wait-for-human 300 --headed"
-            )
-    elif result.kind == "hard_failure":
-        typer.echo(f"  step     : {result.step}")
-        typer.echo(f"  expected : {result.expected}")
-        typer.echo(f"  observed : {result.observed}")
-        typer.echo(f"  screenshot: {result.screenshot}")
+    for line in _detail(result):
+        typer.echo(line)
+
     if drifting := result.drifting_steps:
-        # A count, not the list. Every step above already carries its own "<- fallback"
-        # marker, so printing the names again buried the one number that matters.
+        # A count, not the list: every step above already carries its own marker.
         typer.secho(
             f"  drift warning: {len(drifting)} of {len(result.steps)} steps needed a "
             "fallback locator",

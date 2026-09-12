@@ -1,14 +1,7 @@
 """What a screen looks like from the outside.
 
-This module is the seam. Everything above it - locator resolution, replay, the
-discovery loop - works on `Snapshot` and never touches a browser. Everything below
-it is one driver per kind of surface.
-
-A `Snapshot` is deliberately flat and boring: a list of controls and a list of text
-anchors, each with a role, a name, and a position. That shape is not web-specific.
-Windows UI Automation and macOS Accessibility both expose a control tree with roles
-and names, so a desktop driver fills in the same structure from a different source
-and nothing above this line changes.
+This module is the seam: everything above it works on `Snapshot` and never touches
+a browser, and everything below it is one driver per kind of surface.
 """
 
 from typing import Protocol
@@ -22,19 +15,15 @@ class Control(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     ref: str
-    """Handle for acting on this control. Valid only within the snapshot that
-    produced it - take a new snapshot after the page changes."""
+    """Handle for this control, valid only within the snapshot that produced it."""
 
     role: str
-    """ARIA role as the browser computes it: button, link, textbox, combobox,
-    checkbox, radio. The desktop equivalents map onto the same vocabulary."""
+    """ARIA role as the browser computes it. Desktop equivalents map onto the
+    same vocabulary."""
 
     name: str = ""
-    """Accessible name as the browser computes it.
-
-    Empty is common and expected. Measured across eight of the target's screens: 42
-    form fields, none with a name. That is the entire reason the locator ladder
-    exists - links and buttons have names, inputs do not."""
+    """Accessible name as computed by the browser. Empty is common: 42 form
+    fields across eight screens in the target app have none."""
 
     value: str = ""
     field_name: str = ""
@@ -43,22 +32,21 @@ class Control(BaseModel):
     field_id: str = ""
     text: str = ""
     options: list[str] = Field(default_factory=list)
-    """Visible option labels, for comboboxes. We select by label, never by the
-    underlying option value."""
+    """Visible option labels for comboboxes. Selection is by label, never by
+    the underlying value."""
 
     enabled: bool = True
 
     doc_order: int
-    """Position in reading order. Anchoring works off this rather than pixel
-    geometry, because reading order survives a restyle and exists on desktop too."""
+    """Position in reading order. Used instead of pixel geometry because it
+    survives a restyle and exists on desktop too."""
 
 
 class TextAnchor(BaseModel):
     """Visible text that is not itself interactive.
 
-    These are what make nameless controls addressable. ParaBank writes
-    `<p><b>Username</b></p>` above a bare input, so "Username" is an anchor even
-    though no markup connects it to the field.
+    Makes nameless controls addressable: ParaBank writes `<p><b>Username</b></p>`
+    above a bare input, with no markup connecting the two.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -85,11 +73,8 @@ class Snapshot(BaseModel):
 
 
 class Surface(Protocol):
-    """A screen we can look at and act on.
-
-    Six operations. Keeping this small is what makes a second implementation
-    plausible rather than theoretical.
-    """
+    """A screen we can look at and act on. Kept to six operations so a second
+    implementation stays plausible."""
 
     def observe(self) -> Snapshot: ...
 

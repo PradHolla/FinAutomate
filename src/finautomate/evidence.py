@@ -1,11 +1,7 @@
 """Writing down what happened, in a form someone can audit afterwards.
 
-One run, one directory. A JSONL log of decisions, the raw model transcript kept
+One run, one directory: a JSONL log of decisions, the raw model transcript kept
 separate from it, and screenshots when something goes wrong.
-
-The separation is required rather than tidy: the brief asks that the artifact be
-decoupled from the raw model transcript. So the transcript is evidence, and the
-capability that comes out of the run refers to it by path rather than containing it.
 """
 
 import json
@@ -48,11 +44,7 @@ class Evidence:
         return path
 
     def _redact(self, text: str) -> str:
-        """Redaction happens here, at the one place everything passes through.
-
-        Doing it at call sites means doing it correctly in every call site forever,
-        and the first one anybody forgets is the one that leaks.
-        """
+        """The one place everything passes through, so nothing forgets to redact."""
         for secret in self._secrets:
             text = text.replace(secret, REDACTED)
         return text

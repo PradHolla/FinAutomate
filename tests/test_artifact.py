@@ -51,8 +51,12 @@ def test_password_is_marked_secret_and_only_passed_by_reference(
     assert referenced_params(step.value) == ["password"]
 
 
-def test_no_hostnames_or_css_selectors_anywhere(capability: Capability) -> None:
-    """The two rules the whole design rests on, checked against the real file."""
+def test_no_hostnames_or_css_selectors_anywhere() -> None:
+    """The two rules the whole design rests on, checked against the real file.
+
+    Reads the raw text rather than the parsed model on purpose: a selector smuggled
+    into a description or a comment would still be a selector in the artifact.
+    """
     raw = REFERENCE.read_text()
     body = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("#"))
     assert "://" not in body

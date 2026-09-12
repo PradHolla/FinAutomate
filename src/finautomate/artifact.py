@@ -1,20 +1,14 @@
 """The capability artifact: what a discovery run produces and a replay run consumes.
 
-A capability is a UI flow recorded once and callable many times, like a function:
-typed inputs, ordered steps, typed outputs, a success condition, and a declared list
-of the business outcomes the caller needs to know about.
+A capability is a UI flow recorded once and callable many times: typed inputs,
+ordered steps, typed outputs, a success condition, and declared business outcomes.
+Controls are addressed by role, name, and nearby text, never by CSS selector or
+pixel coordinate, so the same shape works on a browser today and on a desktop
+accessibility API later. `Target.entry` is a relative path; the base URL comes
+from tenant config, so one artifact can serve many institutions.
 
-Two rules the types enforce rather than merely document:
-
-  * No CSS selectors and no pixel coordinates. Controls are addressed the way a
-    person or a screen reader addresses them - by role, name, and nearby text - so
-    the same artifact shape works on a browser today and on a desktop accessibility
-    API later.
-  * No hostnames. `Target.entry` is a relative path; the base URL comes from tenant
-    config at replay time. That is what lets one artifact serve many institutions.
-
-The artifact never holds a secret value. `Input.secret` marks which parameter must
-be wrapped in a redacting type when the caller supplies it at replay time.
+The artifact never holds a secret value. `Input.secret` only marks which
+parameter must be wrapped in a redacting type when the caller supplies it.
 """
 
 import re
@@ -28,12 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 PARAM_PATTERN = r"\{\{\s*(\w+)\s*\}\}"
 
 MatchMode = Literal["exact", "prefix", "contains"]
-"""How text is compared. Always after case-folding and collapsing whitespace.
+"""How text is compared, after case-folding and collapsing whitespace.
 
-`prefix` and `contains` exist for a concrete reason: ParaBank's funding-account
-dropdown is anchored by the sentence "A minimum of $100.00 must be deposited...",
-and that dollar figure is a configurable setting. An exact match would break the
-moment an institution changed it.
+`prefix` and `contains` exist because ParaBank's funding-account dropdown is
+anchored by a sentence with a configurable dollar figure; an exact match would
+break when that figure changed.
 """
 
 
@@ -43,24 +36,11 @@ class Frozen(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-# --------------------------------------------------------------------------
-# Locators
-# --------------------------------------------------------------------------
-
-
-# A `Scope` type - narrowing a search to one region - was designed and cut. Doing it
-# honestly needs containment information (what is inside what), and a Snapshot carries
-# reading order only. Faking it as "anything after this heading" would look like
-# scoping without being scoping. Nothing in the current capability needs it. To add it
-# back, give Control a parent path and resolve against that.
-
-
 class RoleName(Frozen):
-    """Role plus accessible name. The most robust strategy, and the first tried.
+    """Role plus accessible name, the most robust strategy.
 
-    Covers every button and link in ParaBank. Role is always paired with name
-    because names repeat across roles - "Open New Account" is both a nav link and
-    a submit button on the same page.
+    Role is paired with name because names repeat across roles: "Open New Account"
+    is both a nav link and a submit button.
     """
 
     kind: Literal["role_name"]
@@ -72,9 +52,8 @@ class RoleName(Frozen):
 class AnchoredRole(Frozen):
     """Role plus the nearest text before or after it.
 
-    Required, not optional. Measured across eight of the target's screens: 42 form
-    fields, and not one of them has an accessible name. The browser computes an
-    empty string for every input, so `RoleName` cannot address a single one.
+    Required: 42 form fields across eight screens in the target app have no
+    accessible name, so `RoleName` cannot address them.
     """
 
     kind: Literal["anchored_role"]
@@ -92,8 +71,8 @@ class FieldName(Frozen):
 
 
 class FieldId(Frozen):
-    """The element's `id`. Stable within one version of a vendor product, so it sits
-    below the name- and anchor-based strategies rather than above them."""
+    """The element's `id`. Stable within one vendor version, below name- and
+    anchor-based strategies rather than above them."""
 
     kind: Literal["field_id"]
     id: str
@@ -116,30 +95,19 @@ Strategy = Annotated[
 class LocatorBundle(Frozen):
     """Ordered ways to find one control, most robust first.
 
-    Replay tries each in turn and takes the first that matches exactly one element,
-    then records which one won. That record is the drift signal: a step that used to
-    resolve at strategy 0 and now resolves at strategy 2 is telling you the page
-    changed under you.
+    Replay tries each in turn and uses the first that matches exactly one element,
+    then records which one won. That is the drift signal.
     """
 
     description: str
-    """Plain English, for a human reviewer and for the context sent to an operator
-    when a run escalates. Not used for matching."""
+    """For a human reviewer. Not used for matching."""
 
     strategies: list[Strategy] = Field(min_length=1)
 
 
-# --------------------------------------------------------------------------
-# Checkpoints
-# --------------------------------------------------------------------------
-
-
 class ElementVisible(Frozen):
-    """Waits for a control to be visible.
-
-    Visibility rather than navigation is the primitive because the target app never
-    navigates on submit - it hides one div and shows another at the same URL.
-    """
+    """Waits for a control to be visible. Visibility, not navigation, because the
+    target app never changes URL on submit; it hides one div and shows another."""
 
     kind: Literal["element_visible"]
     target: LocatorBundle
@@ -158,19 +126,12 @@ class TextVisible(Frozen):
 Checkpoint = Annotated[ElementVisible | TextVisible, Field(discriminator="kind")]
 
 
-# --------------------------------------------------------------------------
-# Inputs and outputs
-# --------------------------------------------------------------------------
-
-
 class Input(Frozen):
     name: str
     type: Literal["string", "enum", "integer"] = "string"
     required: bool = True
     secret: bool = False
-    """Marks a parameter that must never be written to an artifact, a log, or an
-    evidence file. The artifact holds the flag; the value is wrapped in a redacting
-    type when the caller supplies it."""
+    """Marks a value that must never be written to an artifact, log, or evidence file."""
     values: list[str] | None = None
     description: str | None = None
 
@@ -191,10 +152,6 @@ class Output(Frozen):
     description: str | None = None
 
 
-# --------------------------------------------------------------------------
-# Steps
-# --------------------------------------------------------------------------
-
 Action = Literal["navigate", "click", "type", "select", "read"]
 Risk = Literal["safe", "risky"]
 
@@ -204,8 +161,7 @@ NEEDS_VALUE: frozenset[str] = frozenset({"type", "select"})
 
 class Step(Frozen):
     id: str
-    """Stable address for this step. Not decoration: per-institution overrides are
-    sparse patches keyed by step id, and replay errors name the step that failed."""
+    """Stable id. Per-institution overrides and replay errors key off this."""
 
     action: Action
     target: LocatorBundle | None = None
@@ -213,25 +169,20 @@ class Step(Frozen):
     """A literal, or a `{{parameter}}` reference."""
 
     by: Literal["label", "value"] = "label"
-    """For `select` only. Always label: ParaBank's account-type options carry the
-    values "0" and "1" behind the text CHECKING and SAVINGS, and positional codes
-    like that do not survive a version change."""
+    """For `select` only. Defaults to label because ParaBank's account-type
+    options are "0" and "1" behind the text CHECKING and SAVINGS."""
 
     risk: Risk = "safe"
-    """`risky` means irreversible - it creates or moves something real. Unattended
-    replay stops at a risky step and escalates to a person."""
+    """`risky` means irreversible. Unattended replay stops at a risky step and
+    escalates to a person."""
 
     expect: Checkpoint | None = None
-    """Optional per-step check. Turns "the click silently did nothing" into an error
-    that names the step."""
+    """Optional per-step check, so a silent no-op becomes a named error."""
 
     outcomes: dict[str, str] = Field(default_factory=dict)
-    """Maps a step-level condition to a declared outcome name, e.g.
-    `{"option_not_found": "FUNDING_ACCOUNT_NOT_FOUND"}`.
-
-    This is what separates "the dropdown is missing" (hard failure - wrong page)
-    from "the dropdown is there but has no such option" (business outcome - the app
-    is telling us that account is not available to this customer)."""
+    """Maps a step-level condition to a declared outcome, e.g.
+    `{"option_not_found": "FUNDING_ACCOUNT_NOT_FOUND"}`. Separates a missing
+    dropdown (hard failure) from an empty one (business outcome)."""
 
     description: str | None = None
 
@@ -246,14 +197,10 @@ class Step(Frozen):
         return self
 
 
-# --------------------------------------------------------------------------
-# Outcomes
-# --------------------------------------------------------------------------
-
 Classification = Literal["business_outcome", "recoverable", "hard_failure"]
-"""The three classes the replay result contract must keep apart.
+"""The three classes the replay result keeps apart.
 
-business_outcome  a legitimate answer the caller needs, not a crash
+business_outcome  a legitimate answer, not a crash
 recoverable       retry, dismiss, or re-authenticate, within bounds
 hard_failure      stop and report enough to debug it
 """
@@ -261,20 +208,10 @@ hard_failure      stop and report enough to debug it
 
 class Recovery(Frozen):
     action: Literal["restart"]
-    """Go back to the entry point and run the flow again from its first step.
-
-    There used to be a `restart_from: <step id>` here, and dropping it made the
-    design better rather than worse. Two reasons. A runtime condition like an
-    expired session belongs to the *application*, not to one recorded flow, so it is
-    declared in tenant config - and config cannot name a step id, because every
-    capability names its steps differently. And for the conditions that actually
-    occur, resuming from the middle is wrong anyway: once a session is gone, every
-    screen after the login page is gone with it.
-    """
+    """Go back to the entry point and run the flow again from its first step."""
 
     max_attempts: int = Field(default=1, ge=1, le=3)
-    """Bounded on purpose. Unbounded retry is how automation quietly hammers a
-    production system."""
+    """Bounded on purpose, so retries cannot hammer production."""
 
 
 class Outcome(Frozen):
@@ -282,8 +219,7 @@ class Outcome(Frozen):
     classification: Classification
     message: str | None = None
     detect: Checkpoint | None = None
-    """How to spot it on the page. Omitted when a step raises it directly through
-    its own `outcomes` map."""
+    """How to spot it on the page. Omitted when a step raises it via `outcomes`."""
     recovery: Recovery | None = None
 
     @model_validator(mode="after")
@@ -292,10 +228,7 @@ class Outcome(Frozen):
             raise ValueError(
                 f"outcome {self.name!r} declares recovery but is {self.classification!r}"
             )
-        # The other direction, which is the one that bites: "recoverable" with no
-        # recovery block is a promise the engine cannot keep. It would be detected,
-        # classified as retryable, and then silently fall through to a hard failure
-        # with no explanation. Rejecting it here means the engine never has to ask.
+        # "recoverable" with no recovery block is a promise the engine can't keep.
         if self.classification == "recoverable" and not self.recovery:
             raise ValueError(f"outcome {self.name!r} is recoverable but declares no recovery")
         if self.classification == "recoverable" and self.detect is None:
@@ -303,22 +236,16 @@ class Outcome(Frozen):
         return self
 
 
-# --------------------------------------------------------------------------
-# Top level
-# --------------------------------------------------------------------------
-
-
 class Target(Frozen):
     app: str
     """The vendor product, not the institution. Many tenants run the same product."""
 
     surface: Literal["browser", "windows_uia", "macos_ax"] = "browser"
-    """The seam between how we perceive a screen and what was recorded. Change this
-    and the steps keep their shape, because role, name, and nearby text all exist in
-    Windows UI Automation and macOS Accessibility too."""
+    """Changing this keeps the steps' shape, since role, name, and nearby text
+    exist in Windows UI Automation and macOS Accessibility too."""
 
     entry: str
-    """Relative path. See the hostname rule below."""
+    """Relative path; the base URL comes from tenant config."""
 
     app_version: str | None = None
 
@@ -345,8 +272,8 @@ class Recorded(Frozen):
 
 class Capability(Frozen):
     schema_version: Literal[1] = 1
-    """The format's version. Separate from `version` so that "the format changed"
-    stays distinguishable from "someone re-recorded the flow"."""
+    """Format version, separate from `version` so a format change and a
+    re-record stay distinguishable."""
 
     id: str
     version: int = Field(ge=1)
@@ -363,49 +290,44 @@ class Capability(Frozen):
     outcomes: list[Outcome] = Field(default_factory=list)
     recorded: Recorded | None = None
 
-    # -- cross-field checks: these catch real authoring mistakes ------------
+    @model_validator(mode="after")
+    def step_ids_are_unique(self) -> Self:
+        ids = [s.id for s in self.steps]
+        if len(ids) != len(set(ids)):
+            dupes = sorted({i for i in ids if ids.count(i) > 1})
+            raise ValueError(f"duplicate step ids: {dupes}")
+        return self
 
     @model_validator(mode="after")
-    def references_resolve(self) -> Self:
-        step_ids = [s.id for s in self.steps]
-        if len(step_ids) != len(set(step_ids)):
-            dupes = {i for i in step_ids if step_ids.count(i) > 1}
-            raise ValueError(f"duplicate step ids: {sorted(dupes)}")
-        known_steps = set(step_ids)
+    def outputs_read_from_real_steps(self) -> Self:
+        known = {s.id for s in self.steps}
+        for out in self.outputs:
+            if out.from_step not in known:
+                raise ValueError(f"output {out.name!r} reads from unknown step {out.from_step!r}")
+        return self
+
+    @model_validator(mode="after")
+    def steps_reference_declared_names(self) -> Self:
         known_inputs = {i.name for i in self.inputs}
         known_outcomes = {o.name for o in self.outcomes}
-
-        for out in self.outputs:
-            if out.from_step not in known_steps:
-                raise ValueError(f"output {out.name!r} reads from unknown step {out.from_step!r}")
-
         for step in self.steps:
-            for condition, outcome_name in step.outcomes.items():
-                if outcome_name not in known_outcomes:
+            for condition, outcome in step.outcomes.items():
+                if outcome not in known_outcomes:
                     raise ValueError(
-                        f"step {step.id!r} maps {condition!r} to undeclared "
-                        f"outcome {outcome_name!r}"
+                        f"step {step.id!r} maps {condition!r} to undeclared outcome {outcome!r}"
                     )
             for param in referenced_params(step.value):
                 if param not in known_inputs:
                     raise ValueError(f"step {step.id!r} uses {{{{{param}}}}} but no such input")
-
-        # Recovery used to name the step to resume from, and this checked the name
-        # existed. It restarts the whole flow now, so there is no name to get wrong.
         return self
 
     @model_validator(mode="after")
     def every_input_is_used(self) -> Self:
-        """Each declared input must be referenced by some step.
+        """Each declared input must be used by some step.
 
-        Catches dead parameters, and matters most for secrets: a secret can only
-        reach the browser through `{{parameter}}` substitution, so a declared but
-        unreferenced secret means the flow is getting it some other way.
-
-        Note what this deliberately does not claim to do. Nothing here can detect a
-        password pasted into a step as a literal - the artifact has no way to know
-        that "hunter2" is a secret. Keeping secret values out is enforced by the
-        caller wrapping them in a redacting type, not by inspecting this file.
+        Catches dead parameters, and for a secret an unreferenced one means the value
+        is reaching the page some other way. It cannot catch a password pasted in as a
+        literal: nothing here knows that "hunter2" is a secret.
         """
         used: set[str] = set()
         for step in self.steps:
@@ -425,11 +347,6 @@ class Capability(Frozen):
 def referenced_params(value: str | None) -> list[str]:
     """Parameter names referenced by a step value, e.g. "{{member_id}}" -> ["member_id"]."""
     return re.findall(PARAM_PATTERN, value) if value else []
-
-
-# --------------------------------------------------------------------------
-# Load and save
-# --------------------------------------------------------------------------
 
 
 def load_capability(path: Path) -> Capability:

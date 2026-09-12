@@ -1,19 +1,9 @@
-"""What a replay hands back to whoever called it.
+"""What a replay hands back to the caller.
 
-The brief names one mistake as the most common in this problem: treating "no such
-member" as a crash. It is not a crash, it is the answer. So the four outcomes below
-are four distinct types rather than a status string, and the caller has to
-acknowledge which one it got before it can read anything out of it.
-
-    Success          it worked; here are the declared outputs
-    BusinessOutcome  the application answered, and the answer was no
-    NeedsHuman       stopped deliberately at a step a person must approve
-    HardFailure      something is broken; here is what to look at
-
-There is a fifth class that never reaches the caller. A *recoverable* condition -
-an expired session, a page still loading - is retried inside the engine within the
-bounds the artifact declares. Surfacing it would tell the caller about our plumbing
-rather than about their request.
+Four distinct outcome types instead of a status string: `Success`, `BusinessOutcome`
+(the app answered no), `NeedsHuman` (stopped before something irreversible), and
+`HardFailure`. A fifth, recoverable, condition is retried inside the engine and
+never reaches the caller.
 """
 
 from typing import Annotated, Literal
@@ -32,8 +22,7 @@ class StepRecord(BaseModel):
     strategy_kind: str | None = None
     used_fallback: bool = False
     """True when the preferred locator missed and a lower one caught it. Not an
-    error - but it is the earliest warning that the page has drifted, and the only
-    one you get before the fallback runs out too."""
+    error, but the earliest warning that the page has drifted."""
 
     recovered_from: str | None = None
     duration_ms: int = 0
@@ -59,12 +48,8 @@ class Success(Outcome):
 
 
 class BusinessOutcome(Outcome):
-    """A legitimate answer the caller needs. Not a failure.
-
-    The application was reached, understood the request, and said no - the account
-    does not exist, the customer is not eligible. A caller that retries this is
-    wrong, which is why it is not shaped like an error.
-    """
+    """A legitimate answer, not a failure. The app was reached and said no,
+    so retrying is wrong."""
 
     kind: Literal["business_outcome"] = "business_outcome"
     outcome: str
@@ -83,10 +68,7 @@ class NeedsHuman(Outcome):
 
 
 class HardFailure(Outcome):
-    """Something is wrong with the automation or the application.
-
-    Carries what the brief asks for: which step, what was expected, what was seen.
-    """
+    """Something is wrong with the automation or the application."""
 
     kind: Literal["hard_failure"] = "hard_failure"
     step: str
@@ -108,7 +90,5 @@ EXIT_CODES: dict[str, int] = {
 }
 """Exit codes a shell script can branch on.
 
-A business outcome is deliberately not 0 and not 1. It did not succeed, so a caller
-must not treat it as success; nothing is broken, so a caller must not page anyone.
-Two is the honest answer, and 3 says a person is required.
+A business outcome is not 0 or 1: it did not succeed, but nothing is broken either.
 """

@@ -1,27 +1,8 @@
 """Who is driving, and how control passes between them.
 
-The brief asks for a way to know who is - or should be - in control. That is a
-lease: a single field naming the current controller, written where both sides can
-see it, and checked before either acts.
-
-    agent   automation is driving
-    human   automation has stopped and is waiting; a person has the browser
-    none    nobody is driving; the run is over
-
-The lease lives in the intervention file rather than in memory because the two
-parties are not in the same process. The replaying worker holds the browser; the
-operator is a person at a terminal. A file both can read is the smallest thing that
-works, and it is also what a real deployment would need - the operator console and
-the worker are never the same process there either.
-
-**What a person is asked to decide.** Two different things, kept apart on purpose:
-
-    approve   let the automation perform the step it stopped at
-    handled   the person did it themselves; skip that step and carry on
-
-Collapsing those into one "continue" would lose the distinction between a machine
-acting with permission and a human acting instead of the machine - which is exactly
-what an audit of a bank's systems would want to see.
+A lease: one field naming the current controller ("agent", "human", or "none"),
+written to the intervention file so both the replaying worker and a person at a
+terminal can read and check it before acting.
 """
 
 import json
@@ -33,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Controller = Literal["agent", "human", "none"]
 Status = Literal["open", "approved", "handled", "rejected"]
+"""`approved` is the machine acting with permission. `handled` is a person acting
+instead of the machine, so the step is skipped. An audit cares which."""
 
 TERMINAL: frozenset[str] = frozenset({"approved", "handled", "rejected"})
 
@@ -49,11 +32,7 @@ class HumanAction(BaseModel):
 
 
 class Intervention(BaseModel):
-    """A request for a person, and the record of what they decided.
-
-    Carries what the brief asks an intervention to carry: which capability, which
-    step, the state of the screen, and why it stopped.
-    """
+    """A request for a person, and the record of what they decided."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -69,9 +48,7 @@ class Intervention(BaseModel):
 
     screenshot: str | None = None
     screen: list[str] = Field(default_factory=list)
-    """The controls visible when it stopped, in the same text form the discovery
-    model sees. An operator reading this knows what the automation was looking at
-    without needing the browser."""
+    """The controls visible when it stopped, in the same text form the model sees."""
 
     created: datetime = Field(default_factory=lambda: datetime.now(UTC))
     resolved: datetime | None = None
@@ -96,8 +73,8 @@ class InterventionStore:
 
     def write(self, intervention: Intervention) -> Path:
         target = self.path(intervention.id)
-        # Written to a neighbouring file and moved into place, so a worker polling
-        # this directory never reads a half-written request.
+        # Written to a neighbor file and moved into place, so a poller never
+        # reads a half-written request.
         scratch = target.with_suffix(".writing")
         scratch.write_text(intervention.model_dump_json(indent=2), encoding="utf-8")
         scratch.replace(target)
@@ -128,10 +105,8 @@ class InterventionStore:
         updated = current.model_copy(
             update={
                 "status": status,
-                # Control returns to the automation on every path. Even a rejection
-                # hands back, because the worker still has to unwind cleanly and
-                # report - leaving the lease with a human who has walked away is how
-                # a run hangs forever.
+                # Control returns to the agent on every path, including rejection -
+                # otherwise the lease is left with a human who has walked away.
                 "controller": "agent",
                 "resolved": datetime.now(UTC),
                 "operator": operator,

@@ -1,14 +1,9 @@
 """Watching what a person does while they hold the session.
 
-When automation steps aside, the run still has to be auditable. A bank cannot have
-a gap in the record that reads "a human did something here". So while the lease is
-held by a person, the page reports their clicks and edits back, and they land in the
-same evidence log as everything the machine did.
-
-Two things this deliberately does not do. It does not record keystrokes - only that
-a field changed, and to what, and never for a password. And it does not interfere:
-the listeners are passive and run in the capture phase, so the person's interaction
-with the application is exactly what it would be without us watching.
+While the lease is held by a person, the page reports their clicks and field
+changes back, so the run stays auditable with no gap in the record. It never
+records a password, and the listeners are passive so they don't change how the
+page behaves.
 """
 
 from typing import Any
@@ -38,8 +33,7 @@ WATCH_JS = """
     return clean ? `${tag} "${clean}"` : tag;
   };
 
-  // Never report what was typed into a password field. The point of the audit
-  // trail is what happened, not what the credential was.
+  // Never report what was typed into a password field.
   const valueOf = (el) => {
     if (!el || el.type === "password") return "<redacted>";
     if (el.tagName === "SELECT") {
@@ -69,11 +63,8 @@ WATCH_JS = """
 
 
 def start_watching(page: Page, sink: list[dict[str, Any]]) -> None:
-    """Begin recording the person's actions on this page.
-
-    The binding is registered once for the page and survives navigation; the script
-    is added both as an init script (for pages loaded from here on) and evaluated
-    directly (for the page already on screen).
+    """Start recording the person's actions on this page. Adds the script as an
+    init script for future navigations, and evaluates it now for the current page.
     """
 
     def receive(_source: dict[str, Any], action: dict[str, Any]) -> None:
@@ -82,8 +73,7 @@ def start_watching(page: Page, sink: list[dict[str, Any]]) -> None:
     try:
         page.expose_binding(BINDING, receive)
     except PlaywrightError as err:
-        # The only expected failure is re-registering a binding that already exists,
-        # which happens if a run hands over twice. Anything else is real.
+        # Only expected failure: re-registering a binding, if a run hands over twice.
         if "has been already registered" not in str(err):
             raise
     page.add_init_script(f"({WATCH_JS})()")

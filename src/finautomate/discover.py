@@ -1,23 +1,9 @@
 """The discovery run: a model drives the real UI once, and we write down what worked.
 
-This is a while loop, not a framework. Observe the screen, ask the model for one
-action, check it against policy, record how to find that control again, do it, look
-again. About a hundred lines of that is the whole "agent".
-
-Three decisions worth pointing at:
-
-**The model never sees a screenshot.** It gets a text list of controls with roles
-and names - the same view the replay engine has. If it chose targets by looking at
-pixels it would answer in pixels, and pixel coordinates are the least durable thing
-you can write into a recording.
-
-**The model never sees a secret.** It cannot type a password even if it wants to.
-It calls `type_secret` naming a declared parameter, and this module substitutes the
-value on the way to the browser.
-
-**Recording happens at the moment of each action**, against the snapshot the model
-was looking at. A `ref` means nothing once the page changes, so reconstructing the
-flow afterwards from a transcript would produce a list of dead handles.
+A while loop, not a framework: observe the screen, ask the model for one action,
+check it against policy, record how to find that control again, do it, look again.
+The model never sees a screenshot or a secret, only a text list of controls, and
+each step is recorded against the snapshot it was taken from.
 """
 
 import re
@@ -49,7 +35,7 @@ from finautomate.artifact import (
     Outcome as DeclaredOutcome,
 )
 from finautomate.evidence import Evidence
-from finautomate.policy import Guards, Policy
+from finautomate.policy import Decision, Guards, Policy
 from finautomate.record import build_bundle
 from finautomate.surface.browser import BrowserSurface, ControlNotFoundError, OptionNotFoundError
 from finautomate.surface.models import Control, Snapshot
@@ -57,14 +43,10 @@ from finautomate.surface.models import Control, Snapshot
 SETTLE_SECONDS = 6.0
 
 TITLE_CHARS = 120
-"""A cap on a runaway goal, not a style rule. Generous because a placeholder is
-longer than the value it replaces: 80 characters fitted the goal as typed and cut
-the generalized version off mid-sentence."""
+"""Cap on a runaway goal. 80 cut the generalized title off mid-sentence."""
 
-# The thinking parameters are not the same across models, and the differences are
-# 400 errors rather than warnings. Verified against the API rather than remembered:
-# Haiku 4.5 rejects both adaptive thinking and `output_config.effort`, and needs an
-# explicit token budget below `max_tokens`.
+# Thinking params differ per model and a mismatch is a 400, not a warning.
+# Verified against the API: Haiku 4.5 needs an explicit token budget.
 MODELS: dict[str, tuple[str, dict[str, Any]]] = {
     "sonnet": (
         "claude-sonnet-5",
@@ -77,19 +59,14 @@ MODELS: dict[str, tuple[str, dict[str, Any]]] = {
 }
 DEFAULT_MODEL = "sonnet"
 MAX_DONE_REJECTIONS = 2
-"""How many times the loop will push back before giving up.
+"""How many times the loop pushes back on `done` before giving up.
 
-Pushing back is how a skipped parameter or an uncaptured output gets fixed. But if
-the model cannot satisfy the contract - a field is not on the page at all - an
-uncapped loop would refuse `done` until max_steps, paying for every turn. After
-this many refusals the run ends with no artifact, which is the honest outcome: an
-artifact missing a declared parameter is worse than none, because it validates."""
+An artifact missing a declared output is worse than no artifact, so it stops rather
+than looping to `max_steps`.
+"""
 
-# The model's tool names and the artifact's action vocabulary are deliberately not
-# the same. `type_secret` exists so the model can fill a password field without ever
-# being given the value, but both it and `type_text` record as a plain `type` step.
-# Policy is written in artifact actions, so every tool has to be mapped before the
-# check - getting this wrong once already cost a run.
+# Tool names and artifact actions are deliberately not the same: `type_secret` and
+# `type_text` both record as `type`. Policy checks the mapped action.
 TOOL_ACTION = {
     "click": "click",
     "type_text": "type",
@@ -243,7 +220,9 @@ def _stable_anchor(candidates: list[str]) -> str | None:
     that fails on every other one.
     """
     usable = [
-        text for text in candidates if 4 <= len(text) <= 60 and not any(ch.isdigit() for ch in text)
+        text
+        for text in candidates
+        if ANCHOR_CHARS[0] <= len(text) <= ANCHOR_CHARS[1] and not any(ch.isdigit() for ch in text)
     ]
     return min(usable, key=len) if usable else None
 
@@ -251,16 +230,15 @@ def _stable_anchor(candidates: list[str]) -> str | None:
 def _identity(control: Control) -> tuple[str, ...]:
     """What makes a control the same control across two snapshots.
 
-    Deliberately not `ref`. A ref is a handle stamped on during one observation and
-    re-stamped on the next, so comparing refs across snapshots compares positions,
-    not things - it reports every control as new the moment one is inserted above it.
+    Not `ref`: refs are re-stamped each observation, so they compare positions,
+    not things.
     """
     return (control.role, control.name, control.field_id, control.field_name, control.text[:60])
 
 
 def _has_attribute_strategy(bundle: LocatorBundle) -> bool:
-    """Whether this bundle can find its control by a form attribute rather than by
-    wording. Those attributes are the vendor's; the wording is the institution's."""
+    """Whether this bundle finds its control by a form attribute, not wording.
+    The attribute is the vendor's; the wording is the institution's."""
     return any(isinstance(s, FieldName | FieldId) for s in bundle.strategies)
 
 
@@ -271,12 +249,7 @@ def _describe(checkpoint: Checkpoint) -> str:
 
 
 def checkpoint_for(before: Snapshot, after: Snapshot) -> Checkpoint | None:
-    """What to wait for next time, given what this action changed on screen.
-
-    Pure, so the choice can be checked against two handmade snapshots. It decides
-    which of the two checkpoint kinds a recording gets, and that decision is the
-    difference between a capability that survives a rebrand and one that does not.
-    """
+    """What to wait for next time, given what this action changed on screen."""
     return _appeared(before, after) or _new_text(before, after)
 
 
@@ -292,10 +265,8 @@ def _appeared(before: Snapshot, after: Snapshot) -> Checkpoint | None:
     ]
     if not bundles:
         return None
-    # Prefer one addressable by a form attribute. Names and nearby text are the
-    # institution's wording; `name=` and `id=` belong to the vendor and do not move
-    # when a bank rebrands. Otherwise the first in reading order - arbitrary, and no
-    # worse than any other rule available at this point.
+    # Prefer a vendor attribute over the institution's own wording; it survives a
+    # rebrand. Otherwise the first in reading order, an arbitrary but fine choice.
     durable = next((b for b in bundles if _has_attribute_strategy(b)), None)
     return ElementVisible(kind="element_visible", target=durable or bundles[0])
 
@@ -312,24 +283,27 @@ SLUG_CHARS = 40
 TRAILING_FILLER = frozenset({"from", "for", "with", "into", "by"})
 """Words a name must not end on. Fine in the middle, dangling at the end.
 
-Deliberately short. "in" and "at" belong here by the same logic and are excluded
-anyway, because dropping them turns the Log In button into `click_log`."""
+Deliberately does not include "in" or "at": dropping them turns the Log In
+button into `click_log`."""
+
+ANCHOR_CHARS = (4, 60)
+"""How long a piece of text must be to serve as a checkpoint. Shorter matches half
+the page; longer is usually a paragraph that will be reworded."""
+
+SHORTEST_SWAP = 2
+"""Below this, a value is too common to substitute safely. Replacing every "1"
+would rewrite unrelated text."""
 
 
 def _slug(text: str, action: str) -> str:
     """A short, stable name. Used for step ids and for the capability's own id.
 
-    Placeholders are dropped rather than spelled out. A capability whose account type
-    is a parameter must not be called `open_new_savings_account` - it opens whichever
-    type the caller asks for, and a name that says otherwise will be believed.
-
-    Cut on a word boundary. `[:40]` on the joined string left `..._from_acc`, which
-    reads like a typo rather than a truncation.
+    Placeholders are dropped rather than spelled out, so a capability parameterized
+    on account type isn't named as if it only opened savings. Cut on a word boundary.
     """
     without_params = re.sub(r"\{\{\w+\}\}", " ", text)
     words = re.sub(r"[^a-z0-9 ]", "", without_params.casefold()).split()
-    # Conjunctions carry nothing in a name and a cut that lands on one reads as a
-    # mistake: "..._funded_from_account_and".
+    # Conjunctions carry nothing in a name and a cut that lands on one looks wrong.
     drop = {
         "the",
         "a",
@@ -351,13 +325,25 @@ def _slug(text: str, action: str) -> str:
             break
         kept.append(word)
 
-    # A cut that happens to land after a preposition leaves the name dangling -
-    # "apply_for_loan_with_down_payment_from" reads like it was truncated by accident
-    # rather than shortened on purpose. Drop them back off the end.
+    # A cut landing after a preposition leaves the name dangling. Drop it off the end.
     while kept and kept[-1] in TRAILING_FILLER:
         kept.pop()
 
     return f"{action}_{'_'.join(kept) or action}".strip("_")
+
+
+GAVE_UP = "__gave_up__"
+
+
+def _tool_results(answers: list[tuple[str, str]]) -> MessageParam:
+    """Every tool_use block must be answered or the next request is rejected."""
+    return {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": call_id, "content": text}
+            for call_id, text in answers
+        ],
+    }
 
 
 class Discovery:
@@ -394,15 +380,11 @@ class Discovery:
         self.read_values: list[str] = []
         self.rejections = 0
 
-    # -- parameterization ---------------------------------------------------
-
     def _as_reference(self, literal: str) -> str:
         """Replace a typed value with its parameter placeholder.
 
-        The model types real values because it needs them to reason - it has to see
-        that account 12345 is in the dropdown. The recording must not contain them,
-        or the capability would only ever work for one customer. Any value that came
-        from a parameter is swapped back on the way into the artifact.
+        The model types real values to reason with, but the recording must not keep
+        them, or the capability would only ever work for one customer.
         """
         for name, value in self.params.items():
             if value and literal == value:
@@ -412,15 +394,8 @@ class Discovery:
     def _generalize(self, prose: str) -> str:
         """The same swap, inside free text rather than on a whole value.
 
-        `title` and `description` are the capability's contract - the brief asks that
-        a calling agent be able to read them and understand what it is invoking. Left
-        alone they say "opens a SAVINGS account funded from account 12345 and returns
-        13566", which describes one afternoon rather than the capability, and is
-        wrong for every caller after the first.
-
-        Nothing matches on these fields, so this is about the file being honest to
-        read, not about replay working. Longest value first, so one value that
-        contains another cannot leave half of it behind.
+        Keeps `title` and `description` true for every caller, not just this run.
+        Longest value first, so one value that contains another isn't left half-swapped.
         """
         swaps = {
             **{value: name for name, value in self.params.items()},
@@ -430,11 +405,9 @@ class Discovery:
             },
         }
         for value, name in sorted(swaps.items(), key=lambda pair: -len(pair[0])):
-            if len(value) > 2:
+            if len(value) > SHORTEST_SWAP:
                 prose = prose.replace(value, f"{{{{{name}}}}}")
         return prose
-
-    # -- the loop -----------------------------------------------------------
 
     def run(self, goal: str, entry: str, app: str) -> Capability | None:
         self.surface.navigate(entry)
@@ -443,11 +416,8 @@ class Discovery:
         outcome = "max_steps"
 
         for step_number in range(1, self.guards.max_steps + 1):
-            if time.monotonic() - started > self.guards.max_seconds:
-                outcome = "timeout"
-                break
-            if self.tokens_in + self.tokens_out > self.guards.max_tokens_total:
-                outcome = "token_budget"
+            if tripped := self._guard_tripped(started):
+                outcome = tripped
                 break
 
             snapshot = self.surface.observe()
@@ -466,35 +436,11 @@ class Discovery:
                 url=snapshot.url,
             )
 
-            unaccounted = self._missing_outputs() + self._missing_params()
-            if block.name == "done" and unaccounted and self.rejections >= MAX_DONE_REJECTIONS:
-                outcome = "incomplete"
-                self.evidence.event("gave_up", missing=list(unaccounted))
-                break
-
-            if block.name == "done" and (missing := unaccounted):
-                self.rejections += 1
-                # The caller declared what this capability must return. Finishing
-                # without it produces an artifact that satisfies its goal in prose
-                # and returns nothing, which is worse than a failed run because it
-                # looks fine. Observed: the model captured the account number on one
-                # run and skipped it on the next, from the same prompt.
-                self.evidence.event("done_rejected", step=step_number, missing=list(missing))
-                wanted = ", ".join(missing)
-                nudge = (
-                    f"Not finished. These are still unaccounted for: {wanted}. "
-                    "Every parameter must be set explicitly on the screen, even when a "
-                    "field already looks correct, and every required output must be "
-                    "captured with `read`. Do that, then call done."
-                )
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "tool_result", "tool_use_id": block.id, "content": nudge}
-                        ],
-                    }
-                )
+            if block.name == "done" and (nudge := self._not_finished(step_number)) is not None:
+                if nudge == GAVE_UP:
+                    outcome = "incomplete"
+                    break
+                messages.append(_tool_results([(block.id, nudge)]))
                 continue
 
             if block.name in ("done", "stuck"):
@@ -503,24 +449,12 @@ class Discovery:
                 break
 
             # Every tool_use must be answered or the next request is rejected.
-            # Parallel calls are disabled, so extras should never arrive - but if
-            # one does, an unanswered block ends the run with a 400.
-            results: list[Any] = [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": self._perform(block, snapshot, step_number),
-                },
-                *(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": extra.id,
-                        "content": "Not run. One action per turn - look at the screen again.",
-                    }
-                    for extra in blocks[1:]
-                ),
+            answers = [(block.id, self._perform(block, snapshot, step_number))]
+            answers += [
+                (e.id, "Not run. One action per turn - look at the screen again.")
+                for e in blocks[1:]
             ]
-            messages.append({"role": "user", "content": results})
+            messages.append(_tool_results(answers))
             self._record_wait(snapshot)
 
         self.evidence.event(
@@ -537,6 +471,36 @@ class Discovery:
             return None
         return self._capability(goal, entry, app)
 
+    def _guard_tripped(self, started: float) -> str | None:
+        """A ceiling that does not depend on the model choosing to stop."""
+        if time.monotonic() - started > self.guards.max_seconds:
+            return "timeout"
+        if self.tokens_in + self.tokens_out > self.guards.max_tokens_total:
+            return "token_budget"
+        return None
+
+    def _not_finished(self, step_number: int) -> str | None:
+        """Why `done` is refused, GAVE_UP once refusals run out, or None if it is fine.
+
+        An artifact missing a declared output looks fine and returns nothing, which
+        is worse than a failed run.
+        """
+        missing = self._missing_outputs() + self._missing_params()
+        if not missing:
+            return None
+        if self.rejections >= MAX_DONE_REJECTIONS:
+            self.evidence.event("gave_up", missing=list(missing))
+            return GAVE_UP
+
+        self.rejections += 1
+        self.evidence.event("done_rejected", step=step_number, missing=list(missing))
+        return (
+            f"Not finished. These are still unaccounted for: {', '.join(missing)}. "
+            "Every parameter must be set explicitly on the screen, even when a field "
+            "already looks correct, and every required output must be captured with "
+            "`read`. Do that, then call done."
+        )
+
     def _missing_outputs(self) -> tuple[str, ...]:
         captured = {o.name for o in self.outputs}
         return tuple(name for name in self.expect_outputs if name not in captured)
@@ -544,11 +508,8 @@ class Discovery:
     def _missing_params(self) -> tuple[str, ...]:
         """Parameters the caller supplied that no recorded step actually uses.
 
-        An unused parameter is a lie in the capability's contract: the file claims
-        to take a funding account and then ignores it. It happens when a field
-        already holds an acceptable value and the model sees no reason to touch it -
-        which is true for this run and false for the next caller. Observed twice on
-        the same prompt, so the instruction is not enough on its own.
+        An unused parameter is a lie in the capability's contract, so `done` refuses
+        until it is set or dropped.
         """
         used = {p for step in self.steps for p in re.findall(r"\{\{(\w+)\}\}", step.value or "")}
         declared = {*self.params, *self.secrets}
@@ -568,21 +529,10 @@ class Discovery:
         return ""
 
     def _record_wait(self, before: Snapshot) -> None:
-        """Wait for the page to respond, and write down what we waited for.
+        """Wait for the page to settle, then record what changed as the checkpoint.
 
-        Two jobs in one place, because they are the same observation.
-
-        The wait: this application answers a submit by swapping one panel for
-        another after the network has already gone quiet, so an immediate snapshot
-        shows the form still standing. Without this the model concludes its click
-        did nothing and clicks again - which, on the button that opens a bank
-        account, is not a harmless mistake.
-
-        The recording: replay has to make the same wait, and it has no model to
-        notice the page is still catching up. So whatever text appeared as a result
-        of this action becomes the step's checkpoint. Skipping this is what made an
-        earlier recording read the account number off a form that had not been
-        replaced yet.
+        This app swaps panels after the network goes quiet, so an immediate snapshot
+        looks unchanged. Replay has no model to notice that, so the checkpoint has to.
         """
         deadline = time.monotonic() + SETTLE_SECONDS
         baseline = render(before)
@@ -594,21 +544,10 @@ class Discovery:
             time.sleep(0.2)
 
     def _attach_checkpoint(self, before: Snapshot, after: Snapshot) -> None:
-        """Give the step we just recorded a checkpoint for what the action produced.
+        """Give the step just recorded a checkpoint for what the action produced.
 
-        A control if one appeared, and only text if none did. The order matters and
-        it is the whole point of this method.
-
-        Text is what the screen *says*. It is also the first thing a second
-        institution changes when it puts its own name on a vendor product, and a
-        text checkpoint has exactly one string and no fallback - so a reworded page
-        turns a healthy run into a hard failure. A control is addressed through the
-        same ladder every locator uses, so the top rung can miss and a lower one
-        still catch it. Measured on this application: two of the three transitions
-        produce a control carrying a vendor id, which survives any amount of
-        relabeling. The third produces only navigation links named in the
-        institution's own words, and for that one there is nothing better than
-        wording to hold on to.
+        A control if one appeared, text only if none did: a control goes through the
+        locator ladder and survives a reword better than one exact string can.
         """
         if not self.steps or (last := self.steps[-1]).expect is not None:
             return
@@ -622,14 +561,8 @@ class Discovery:
     def _success_condition(self) -> Checkpoint:
         """How replay will know the job is done.
 
-        The last control we positively confirmed on screen, if there was one. That
-        is the confirmation panel here, and addressing it through a locator ladder
-        means a second institution can reword the page without the capability
-        deciding the job failed.
-
-        Otherwise the model's own sentence, which is what this always used to be. It
-        reads well and it is honest about where it came from, but it is one string
-        with no fallback, so it is the second choice rather than the first.
+        The last control confirmed on screen, if there was one; otherwise the
+        model's own success phrase.
         """
         for step in reversed(self.steps):
             if isinstance(step.expect, ElementVisible):
@@ -651,12 +584,10 @@ class Discovery:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
-            # The system prompt and tool definitions are identical on every turn and
-            # get resent each time. Caching them is the single cheapest win here.
+            # Same system prompt and tools every turn, so cache them.
             system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
             tools=_tools(),
-            # One action per turn. The loop observes the screen between actions, so
-            # a second action chosen from a stale screen would be acting blind.
+            # One action per turn: the loop re-observes the screen between actions.
             tool_choice={"type": "auto", "disable_parallel_tool_use": True},
             messages=messages,
             **self.model_params,
@@ -667,20 +598,11 @@ class Discovery:
         messages.append({"role": "assistant", "content": response.content})
         return [b for b in response.content if isinstance(b, ToolUseBlock)]
 
-    # -- one action ---------------------------------------------------------
-
     def _perform(self, block: ToolUseBlock, snapshot: Snapshot, step_number: int) -> str:
+        """Run one tool call and return what the model should be told about it."""
         args: dict[str, Any] = dict(block.input)
-
         if block.name == "navigate":
-            path = str(args.get("path", ""))
-            decision = self.policy.check_path(path)
-            self.evidence.event("policy", step=step_number, target=path, verdict=decision.verdict)
-            if decision.blocked:
-                return f"REFUSED by policy: {decision.reason}"
-            self.surface.navigate(path)
-            self._add_step(Step(id=self._step_id("navigate", path), action="navigate"))
-            return "navigated"
+            return self._navigate(args, step_number)
 
         ref = str(args.get("ref", ""))
         description = str(args.get("description", ref))
@@ -688,16 +610,6 @@ class Discovery:
             control = snapshot.control(ref)
         except KeyError:
             return f"No control {ref!r} on the screen you were shown. Look again."
-
-        # Refuse to act on a stale handle. The model chose this ref from a snapshot
-        # taken before its turn; if the page has moved since, that ref may now point
-        # at something else entirely. Rejecting is the whole reason these are
-        # dedicated tools rather than a generic "run this" - the harness can enforce
-        # an invariant the model cannot see.
-        stale = self._stale(control)
-        if stale:
-            self.evidence.event("stale_ref", step=step_number, ref=ref, detail=stale)
-            return f"{stale} The screen has changed since you looked. Look again."
 
         decision = self.policy.decide(
             TOOL_ACTION[block.name], control.name or control.text, control.role
@@ -710,15 +622,41 @@ class Discovery:
             verdict=decision.verdict,
             reason=decision.reason,
         )
+        if (refusal := self._refuse(control, description, decision, step_number)) is not None:
+            return refusal
+        return self._record_and_act(
+            block, args, control, snapshot, description, decision, step_number
+        )
+
+    def _navigate(self, args: dict[str, Any], step_number: int) -> str:
+        path = str(args.get("path", ""))
+        decision = self.policy.check_path(path)
+        self.evidence.event("policy", step=step_number, target=path, verdict=decision.verdict)
+        if decision.blocked:
+            return f"REFUSED by policy: {decision.reason}"
+        self.surface.navigate(path)
+        self._add_step(Step(id=self._step_id("navigate", path), action="navigate"))
+        return "navigated"
+
+    def _refuse(
+        self,
+        control: Control,
+        description: str,
+        decision: Decision,
+        step_number: int,
+    ) -> str | None:
+        """Why this action must not happen, or None if it may."""
+        # The ref may be stale if the page moved since the model looked, so this
+        # rejects rather than attempts.
+        if stale := self._stale(control):
+            self.evidence.event("stale_ref", step=step_number, ref=control.ref, detail=stale)
+            return f"{stale} The screen has changed since you looked. Look again."
+
         if decision.blocked:
             return f"REFUSED by policy: {decision.reason}"
 
-        # An irreversible step is the point of no return, so every precondition has
-        # to hold before it - not at `done`, by which time the account already
-        # exists. Found by running discovery on a smaller model: it skipped a
-        # parameter, opened an account, was told at `done` that the parameter was
-        # never used, and started the whole flow over. The recording then held both
-        # attempts, so replaying it would have opened two accounts.
+        # Preconditions must hold before the risky step, not at `done`, by which
+        # time the account already exists.
         if decision.verdict == "risky" and (unset := self._missing_params()):
             self.evidence.event(
                 "precondition_held", step=step_number, control=description, missing=list(unset)
@@ -728,13 +666,25 @@ class Discovery:
                 f"still unset on this screen: {', '.join(unset)}. Set them first, "
                 "then do this."
             )
+        return None
 
-        # A `read` step is the one place where the control's own name is the data
-        # we are about to return. Peek at it first so it can be kept out of the
-        # locator - "the link named 13566" works exactly once.
+    def _record_and_act(
+        self,
+        block: ToolUseBlock,
+        args: dict[str, Any],
+        control: Control,
+        snapshot: Snapshot,
+        description: str,
+        decision: Decision,
+        step_number: int,
+    ) -> str:
+        # A `read` returns the control's own name as data, so keep that out of the
+        # locator too.
         peeked = self.surface.read(control.ref) if block.name == "read" else ""
         forbid = frozenset(
-            v for v in [*self.params.values(), *self.read_values, peeked] if v and len(v) > 2
+            v
+            for v in [*self.params.values(), *self.read_values, peeked]
+            if v and len(v) > SHORTEST_SWAP
         )
         bundle = build_bundle(control, snapshot, description, forbid)
         if bundle is None:
@@ -748,14 +698,15 @@ class Discovery:
         except ControlNotFoundError:
             return "That control is no longer on the page. Look again."
         except PlaywrightError as err:
-            # A failed action is information, not a fatal error. The page may have
-            # moved under us between the snapshot and the click. Hand the reason back
-            # and let the model look again rather than killing a run mid-flight.
+            # A failed action is information, not a fatal error. Hand the reason back
+            # and let the model look again rather than killing the run.
             self.evidence.event(
                 "action_failed", step=step_number, control=description, error=str(err)[:200]
             )
-            first_line = str(err).strip().splitlines()[0]
-            return f"That action failed: {first_line}. The screen may have changed - look again."
+            return (
+                f"That action failed: {str(err).strip().splitlines()[0]}. "
+                "The screen may have changed - look again."
+            )
 
     def _act(
         self,
@@ -801,12 +752,7 @@ class Discovery:
             label = str(args.get("label", ""))
             self.surface.select(ref, label)
             reference = self._as_reference(label)
-            # "The option is not in the list" is the application telling the caller
-            # that choice is not available to this customer - the same shape as "no
-            # such member". It is a property of choosing from a list, not of this
-            # app, so the recorder declares it rather than waiting for a model to
-            # think of it. Without this the condition reaches the caller as a hard
-            # failure, which reads as "we are broken" instead of "the answer is no".
+            # A missing option is the app answering "not available", not a failure.
             named = re.findall(r"\{\{(\w+)\}\}", reference)
             outcomes = {"option_not_found": f"{named[0].upper()}_NOT_AVAILABLE"} if named else {}
             self._add_step(
@@ -832,8 +778,6 @@ class Discovery:
 
         return f"Unknown tool {block.name!r}"
 
-    # -- assembling the artifact -------------------------------------------
-
     def _step_id(self, action: str, description: str) -> str:
         base = _slug(description, action)
         candidate, n = base, 2
@@ -854,11 +798,7 @@ class Discovery:
     def _stable(self, text: str) -> str:
         """Cut a success phrase at the first run-specific value.
 
-        The model is asked for a phrase that reads the same every run, and mostly
-        obliges - but "Account Opened! ... Your new account number: 13566" slipped
-        through once, which would have made the check fail on every future call. The
-        instruction is the fix; this is the guard, because a success condition that
-        can only ever match one run is worse than no success condition at all.
+        Guards against a phrase that would only ever match this one run.
         """
         cut = len(text)
         for value in [*self.params.values(), *(self.read_values)]:
@@ -890,19 +830,13 @@ class Discovery:
             if n in used
         ]
         return Capability(
-            # The generalized goal, not the raw one. `_slug` drops placeholders, and
-            # there are none in the goal as typed - so slugging that produced
-            # `open_new_savings_account...` for a capability whose account type is a
-            # parameter.
+            # Generalize before slugging, or a parameterized goal slugs as if it
+            # only ever did the one thing this run did.
             id=_slug(self._generalize(goal), "capability").replace("capability_", "")
             or "capability",
             version=1,
-            # Generalized, not trimmed. `_stable` protects the success matcher by
-            # cutting text at the first run-specific value, which is right for a
-            # matcher and wrong for prose - it leaves half a sentence. Swapping the
-            # values for their parameter names keeps the sentence and makes it true
-            # for every caller. Shortened on a word boundary so a placeholder cannot
-            # be cut in half.
+            # Generalized, not `_stable`-trimmed: trimming cuts prose mid-sentence,
+            # generalizing keeps it whole and true for every caller.
             title=textwrap.shorten(self._generalize(goal), width=TITLE_CHARS, placeholder=" ..."),
             description=self._generalize(self.summary or goal),
             target=Target(app=app, surface="browser", entry=entry),
