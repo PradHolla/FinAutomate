@@ -153,6 +153,17 @@ reported success and returned "Home" as a loan account number. A declared outcom
 checked after every step, whether the checkpoint passed or not. A checkpoint asks "did
 the thing I expected appear?". An outcome asks "what did the application say?".
 
+**Two recovery verbs, because the fix depends on the condition.** An expired session
+means every screen behind the login page is gone with it, so `restart` goes back to the
+entry point. A notice covering an intact page means the flow underneath has not moved, so
+`dismiss` clicks the declared control and retries the step it was on. A single verb would
+have forced one of those to be wrong.
+
+**An action that cannot be performed is classified, not crashed.** A control that is
+present but covered makes the click time out. That used to surface as an unexplained
+Playwright error; it is now put through the same classification as anything else, which
+is what makes an interstitial recoverable rather than fatal.
+
 **Nothing is retried unless it was declared**, with a detector and a bounded number of
 attempts. Retrying anything and everything is how automation hammers a production system
 while looking busy. Those conditions live in **tenant config, not the artifact**: a
@@ -363,6 +374,13 @@ during a handover, and turning that into a capability is a short step from machi
 already exists. We stopped on purpose: someone demonstrating a flow was authorized in
 that moment, and replaying it later, unattended, is an authorization nobody gave. That
 needs a draft-to-approved gate first.
+
+**A validation error is not distinguishable on these flows.** This application collapses
+a bad value into its generic error page: replaying the loan with `loan_amount=abc` reports
+`APP_ERROR`, correctly but without saying the input was the problem. Its Bill Pay screen
+does carry real per-field validation markup, so the honest way to cover this row of the
+taxonomy is a third capability against that screen, and a third capability for one row is
+the feature breadth the brief says it does not reward.
 
 **Not built at all:** queues, a database, cloud deployment, multi-tenant plumbing. The
 brief says it does not reward them. Retry-everything, because only declared conditions

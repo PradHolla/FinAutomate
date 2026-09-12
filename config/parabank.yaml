@@ -109,3 +109,37 @@ outcomes:
       text: Denied
       match: exact
       timeout_ms: 1000
+
+  - name: PERMISSION_DENIED
+    classification: hard_failure
+    message: The signed-in user is not permitted to perform this operation.
+    # Not a business outcome. A business outcome is the application answering the
+    # caller's question; this says the caller was never allowed to ask. No argument
+    # they change will help, so retrying is pointless and a person has to fix an
+    # entitlement. Naming it separates "your request was refused" from "we are
+    # misconfigured", which land on different desks.
+    detect:
+      kind: text_visible
+      text: not authorized
+      match: contains
+      timeout_ms: 1000
+
+  - name: INTERSTITIAL
+    classification: recoverable
+    message: A notice was covering the page and was dismissed.
+    # A banner over an intact page. The flow underneath has not moved, so the fix is to
+    # clear the panel and retry the step, not to start over.
+    detect:
+      kind: text_visible
+      text: Scheduled maintenance
+      match: contains
+      timeout_ms: 1000
+    recovery:
+      action: dismiss
+      max_attempts: 2
+      target:
+        description: the button that closes the notice
+        strategies:
+          - kind: role_name
+            role: button
+            name: Continue to account

@@ -12,8 +12,10 @@ from pydantic import SecretStr, ValidationError
 
 from finautomate.artifact import (
     Capability,
+    LocatorBundle,
     Outcome,
     Recovery,
+    RoleName,
     Step,
     Target,
     TextVisible,
@@ -381,3 +383,64 @@ def test_an_answer_beats_a_retry() -> None:
 
     assert isinstance(answer, BusinessOutcome), f"expected the answer, got {type(answer).__name__}"
     assert answer.outcome == "LOAN_DENIED"
+
+
+def test_a_dismiss_recovery_must_say_what_to_dismiss() -> None:
+    """`restart` needs nothing: it goes back to the entry point. `dismiss` clicks
+    something, so a dismiss with no target is a rule the engine cannot carry out."""
+    with pytest.raises(ValidationError, match="what to dismiss"):
+        Recovery(action="dismiss")
+    with pytest.raises(ValidationError, match="takes no target"):
+        Recovery(
+            action="restart",
+            target=LocatorBundle(
+                description="x", strategies=[RoleName(kind="role_name", role="button", name="OK")]
+            ),
+        )
+
+
+def test_an_interstitial_is_recoverable_and_a_refusal_is_not() -> None:
+    """Two conditions the brief names, kept apart by what you can do about them.
+
+    A notice over an intact page is cleared and the step retried. A refusal cannot be
+    retried into success: no argument the caller changes will grant an entitlement, so
+    it stops and names itself instead of timing out.
+    """
+    outcomes = [
+        Outcome(
+            name="INTERSTITIAL",
+            classification="recoverable",
+            detect=TextVisible(kind="text_visible", text="Scheduled maintenance"),
+            recovery=Recovery(
+                action="dismiss",
+                target=LocatorBundle(
+                    description="the button that closes the notice",
+                    strategies=[RoleName(kind="role_name", role="button", name="Continue")],
+                ),
+            ),
+        ),
+        Outcome(
+            name="PERMISSION_DENIED",
+            classification="hard_failure",
+            message="not permitted",
+            detect=TextVisible(kind="text_visible", text="not authorized"),
+        ),
+    ]
+    covered = Snapshot(
+        url="/parabank/openaccount.htm",
+        title="ParaBank",
+        anchors=[TextAnchor(text="Scheduled maintenance this Sunday", doc_order=0)],
+        controls=[Control(ref="b1", role="button", doc_order=1, name="Continue")],
+    )
+    refused = Snapshot(
+        url="/parabank/openaccount.htm",
+        title="ParaBank",
+        anchors=[TextAnchor(text="You are not authorized to perform this operation", doc_order=0)],
+        controls=[],
+    )
+    assert (found := detected(outcomes, "recoverable", covered)) is not None
+    assert found.name == "INTERSTITIAL" and found.recovery is not None
+    assert found.recovery.action == "dismiss"
+    assert detected(outcomes, "recoverable", refused) is None, "a refusal is not retryable"
+    assert (denied := detected(outcomes, "hard_failure", refused)) is not None
+    assert denied.name == "PERMISSION_DENIED"

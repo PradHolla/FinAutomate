@@ -1,0 +1,24 @@
+# Refuse the account-opening call the way a service account without the right
+# entitlement would be refused.
+#
+# ParaBank has no roles, so this has to be injected. The point is what replay does with
+# it: a named hard failure rather than a generic timeout. It is not a business outcome,
+# because no argument the caller changes will help. It means our credentials are wrong,
+# which is an operations problem, and the run says so.
+#
+# Refused on the page request, not on the call behind it. That is both the realistic
+# shape and the only detectable one here: this app funnels every failed background call
+# into one generic error panel, so denying the call would be indistinguishable from the
+# application breaking. Denying the page means the browser renders the refusal.
+#
+# Answered without forwarding, so nothing is created upstream.
+
+upstream: http://localhost:8080
+
+rules:
+  - name: entitlement missing for this screen
+    when:
+      path_contains: /parabank/openaccount.htm
+    then:
+      status: 403
+      body: <h1 class="title">Access Denied</h1><p>You are not authorized to perform this operation.</p>

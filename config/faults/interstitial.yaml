@@ -1,0 +1,27 @@
+# Put a modal over the page, the way a consent banner or a maintenance notice does.
+#
+# The flow underneath is untouched: this is not a broken app, it is a panel in the way.
+# That is what makes it recoverable rather than a failure, and why the recovery is
+# `dismiss` and not `restart`. The declared outcome in config/parabank.yaml names the
+# button to click.
+#
+# Injected once, on the way to the new-account form, so the replay meets it mid-flow.
+
+upstream: http://localhost:8080
+
+rules:
+  - name: a notice covering the page
+    when:
+      path_contains: /parabank/openaccount.htm
+    once: true
+    then:
+      replace:
+        - find: <div id="rightPanel">
+          with: >-
+            <div id="siteNotice" style="position:fixed;top:0;left:0;width:100%;
+            height:100%;background:rgba(0,0,0,.6);z-index:9999">
+            <div style="background:#fff;margin:15% auto;padding:24px;width:420px">
+            <h2>Scheduled maintenance</h2>
+            <p>Online banking will be unavailable this Sunday.</p>
+            <button type="button" onclick="document.getElementById('siteNotice').remove()">
+            Continue to account</button></div></div><div id="rightPanel">

@@ -61,13 +61,20 @@ No model in any of these.
 | `replay-b96dbdfbc4/` | needs human | 3 | unattended, so it stopped before the irreversible step |
 | `replay-bb4ef889a5/` | hard failure | 1 | the account-opening call broken by the fault proxy. Reported as `APP_ERROR`, with a screenshot |
 | `replay-d04a604e52/` | success after recovery | 0 | the proxy dropped the session mid-flow. See the `recovering` event, then the run restarting from the top |
+| `replay-80ac5bdee9/` | success after recovery | 0 | a notice was covering the page. The run cleared it and retried the step it was on, rather than starting over |
+| `replay-0e5fdff3ef/` | hard failure | 1 | the screen was refused to this user. Reported as `PERMISSION_DENIED`, not as a timeout |
 | `replay-ab6cda16d6/` | success at a second tenant | 0 | the same artifact against a rebranded ParaBank. All eight steps fell to a lower-tier locator and it still worked |
 
 The two exit-2 runs are the point of the error taxonomy and they are not the same
 thing. One is the caller asking for an account that is not theirs. The other is the
 bank weighing an application and declining it. Both are answers; neither is a crash.
 
-The last three use `finautomate proxy` to inject the failure, because a healthy
+The two recoveries are deliberately different verbs. An expired session means every
+screen behind the login page is gone, so the only honest response is to start over. A
+notice over an intact page means the flow underneath has not moved, so it is cleared and
+the step retried.
+
+The last five use `finautomate proxy` to inject the failure, because a healthy
 ParaBank will not expire a session or break on request. See "Breaking it on purpose"
 in the root README.
 

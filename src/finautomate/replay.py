@@ -164,9 +164,10 @@ class Replay:
                 step = self.cap.steps[index]
                 outcome = self._step(step, bound)
                 if isinstance(outcome, Recovery):
-                    # Recovery restarts from the entry point, not step zero.
-                    self.surface.navigate(self.cap.target.entry)
-                    index = 0
+                    if (stopped := self._recover(outcome)) is not None:
+                        return self._finish(stopped, started)
+                    # `dismiss` leaves the flow where it was, so retry this step.
+                    index = 0 if outcome.action == "restart" else index
                     continue
                 if outcome is not None:
                     return self._finish(outcome, started)
@@ -252,7 +253,9 @@ class Replay:
             observed=self._diagnose(snapshot, explain(step.target, found)),
         )
 
-    def _apply(self, step: Step, ref: str, bound: dict[str, str | SecretStr]) -> Result | None:
+    def _apply(
+        self, step: Step, ref: str, bound: dict[str, str | SecretStr]
+    ) -> Result | Recovery | None:
         """Perform the action. A Result means stop; None means it worked."""
         assert step.target is not None
         try:
@@ -270,6 +273,18 @@ class Replay:
         except ControlNotFoundError:
             return self._fail(
                 step.id, expected=step.target.description, observed="it vanished before the action"
+            )
+        except PlaywrightError as err:
+            # The control is there and the action still could not be performed: most
+            # often something is sitting over it. Classify before calling it a crash,
+            # because an interstitial covering the page is a declared condition with a
+            # declared fix, not a broken application.
+            if (answer := self._classify(step, self.surface.observe())) is not None:
+                return answer
+            return self._fail(
+                step.id,
+                expected=f"to {step.action} {step.target.description}",
+                observed=str(err).strip().splitlines()[0],
             )
         return None
 
@@ -467,6 +482,26 @@ class Replay:
         except PlaywrightError:
             return False
         return True
+
+    def _recover(self, recovery: Recovery) -> Result | None:
+        """Carry out a declared recovery. A Result means it could not be done."""
+        if recovery.action == "restart":
+            # Back to the entry point, not to step zero: after a session dies, every
+            # screen behind the login page is gone too.
+            self.surface.navigate(self.cap.target.entry)
+            return None
+
+        assert recovery.target is not None  # the schema guarantees it for dismiss
+        found = resolve(recovery.target, self.surface.observe())
+        if found.control is None:
+            return self._fail(
+                "recovery",
+                expected=recovery.target.description,
+                observed=explain(recovery.target, found),
+            )
+        self.surface.click(found.control.ref)
+        self.evidence.event("dismissed", target=recovery.target.description)
+        return None
 
     def _classify(self, step: Step, snapshot: Snapshot) -> Result | Recovery | None:
         """What the screen says about why this step could not proceed.

@@ -248,6 +248,8 @@ Swap the rules file to change what breaks:
 | `config/faults/session-expiry.yaml` | drops the session cookie once, mid flow | the run detects it, signs in again, finishes. Exit 0 |
 | `config/faults/slow.yaml` | 6s on the page load, 8s on the account call | still succeeds, in about 15s. Exit 0 |
 | `config/faults/app-error.yaml` | breaks the call that opens the account | `HARD_FAILURE ... APP_ERROR: The application showed its internal error page.` Exit 1 |
+| `config/faults/interstitial.yaml` | puts a notice over the page, once | the run clears it and retries the step it was on. Exit 0 |
+| `config/faults/permission-denied.yaml` | refuses the screen to this user | `HARD_FAILURE ... PERMISSION_DENIED`. Exit 1 |
 
 The capability itself says nothing about session timeouts or error pages, and it should
 not. A discovery run can only record what it saw, and nothing went wrong while it was

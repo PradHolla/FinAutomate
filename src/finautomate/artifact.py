@@ -207,11 +207,32 @@ hard_failure      stop and report enough to debug it
 
 
 class Recovery(Frozen):
-    action: Literal["restart"]
-    """Go back to the entry point and run the flow again from its first step."""
+    """What to do about a recoverable condition."""
+
+    action: Literal["restart", "dismiss"]
+    """`restart` goes back to the entry point and runs the flow again. It is the only
+    honest response to an expired session, since every screen after the login page is
+    gone with it.
+
+    `dismiss` clicks something and retries the step that failed. That is the shape of an
+    interstitial: a banner or modal appeared over the page, and the flow underneath is
+    still intact."""
+
+    target: LocatorBundle | None = None
+    """What to click, for `dismiss`. Addressed by the same ladder as any other control,
+    because a consent banner is relabeled by a rebrand like everything else."""
 
     max_attempts: int = Field(default=1, ge=1, le=3)
-    """Bounded on purpose, so retries cannot hammer production."""
+    """Bounded on purpose. Unbounded retry is how automation hammers a production
+    system."""
+
+    @model_validator(mode="after")
+    def dismiss_needs_a_target(self) -> Self:
+        if self.action == "dismiss" and self.target is None:
+            raise ValueError("a dismiss recovery must say what to dismiss")
+        if self.action == "restart" and self.target is not None:
+            raise ValueError("a restart recovery takes no target")
+        return self
 
 
 class Outcome(Frozen):
