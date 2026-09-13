@@ -10,7 +10,7 @@ finish on its own.
 * `REPORT.md` is the design write-up.
 * `FINDINGS.md` lists the bugs this project found in itself, and what changed.
 * `evidence/` holds one real run per outcome, with its own index.
-* `artifacts/` holds the two capabilities. **Both were recorded by an LLM driving the real
+* `artifacts/` holds the three capabilities. **All were recorded by an LLM driving the real
   UI**, never written by hand. Each names the run that produced it in its `recorded:`
   block, and that run's log is in `evidence/`.
 
@@ -242,6 +242,53 @@ bank weighing an application and saying no. Both are answers.
 To see exit 1, stop the app with `docker stop parabank` and run a replay, or use the injected
 app error described below. Remember `docker start parabank` afterwards.
 
+## A third capability, and the last kind of "no"
+
+The two capabilities above cover a bank saying no and a caller naming an account they do not
+own. There is a third kind: the application reading a value the caller supplied and saying it
+is not acceptable. ParaBank's Bill Pay screen is where that happens, because it validates each
+field rather than funneling everything into one error page.
+
+```bash
+uv run finautomate reset
+uv run finautomate discover \
+  "Pay a bill of 50 to City Power, 1 Main St, Springfield, IL 62701, phone 5551234567, account 54321, from account 12345, and return the amount that was paid" \
+  --param username=john --secret password=demo
+```
+
+Sixteen steps, eleven parameters, all named by the model. Note that it takes the account number
+and its confirmation from the **same** parameter, so the two can never disagree. Replay it:
+
+```bash
+uv run finautomate reset
+uv run finautomate replay artifacts/pay_bill_phone_account_from_account.yaml \
+  --param username=john --secret password=demo \
+  --param payee_name="City Power" --param payee_address="1 Main St" \
+  --param payee_city=Springfield --param payee_state=IL --param payee_zip=62701 \
+  --param payee_phone=5551234567 --param payee_account=54321 \
+  --param amount=50 --param from_account=12345 --attended
+```
+
+```
+SUCCESS
+  amount_paid = '$50.00'
+```
+
+That value is a table cell, not a form field. Reading it at all is why a `read` can now reach
+text as well as controls.
+
+Now pass `--param amount=abc` instead:
+
+```
+BUSINESS_OUTCOME
+  VALIDATION_ERROR: The application rejected a value the caller supplied.
+  Please enter a valid amount.
+```
+
+Exit 2 again, and the second sentence is the application's. This is a business outcome rather
+than a failure because the application read the argument and answered: nothing is broken, no
+person is needed, and the caller passes a different value and it works.
+
 ## What the agent is allowed to do
 
 `config/parabank.yaml` holds the policy, and every action is checked against it before it
@@ -391,6 +438,9 @@ different rules file. Leaving it running makes the next one fail on a busy port.
 | `app-error.yaml` | breaks the call that opens the account | `HARD_FAILURE ... APP_ERROR`. Exit 1 |
 | `interstitial.yaml` | puts a notice over the page, once | clears it and retries the step it was on. Exit 0. Takes about 30s |
 | `permission-denied.yaml` | refuses the screen to this user | `HARD_FAILURE ... PERMISSION_DENIED`. Exit 1 |
+
+Those, plus the loan refusal and the bill-pay validation error above, are all six runtime
+conditions the assignment lists.
 
 The capability itself says nothing about session timeouts or error pages, and it should not. A
 discovery run can only record what it saw, and nothing went wrong while it was recording. Those

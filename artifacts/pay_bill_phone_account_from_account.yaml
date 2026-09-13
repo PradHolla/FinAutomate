@@ -1,0 +1,686 @@
+schema_version: 1
+id: pay_bill_phone_account_from_account
+version: 1
+title: Pay a bill of {{amount}} to {{payee_name}}, {{payee_address}}, {{payee_city}}, {{payee_state}}
+  {{payee_zip}}, phone ...
+description: Successfully paid a bill of {{amount_paid}} to {{payee_name}} from account {{from_account}}.
+  The bill payment was completed with all specified payee information.
+target:
+  app: parabank
+  surface: browser
+  entry: /parabank/index.htm
+inputs:
+- name: username
+  type: string
+  required: true
+  secret: false
+- name: password
+  type: string
+  required: true
+  secret: true
+- name: payee_name
+  type: string
+  required: true
+  secret: false
+- name: payee_address
+  type: string
+  required: true
+  secret: false
+- name: payee_city
+  type: string
+  required: true
+  secret: false
+- name: payee_state
+  type: string
+  required: true
+  secret: false
+- name: payee_zip
+  type: string
+  required: true
+  secret: false
+- name: payee_phone
+  type: string
+  required: true
+  secret: false
+- name: payee_account
+  type: string
+  required: true
+  secret: false
+- name: amount
+  type: string
+  required: true
+  secret: false
+- name: from_account
+  type: string
+  required: true
+  secret: false
+outputs:
+- name: amount_paid
+  type: string
+  from_step: read_amount_paid
+steps:
+- id: type_text_username
+  action: type
+  target:
+    description: Username field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: Username
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Customer Login
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Solutions
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Experience the difference
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Password
+      match: exact
+      position: before
+    - kind: field_name
+      name: username
+  value: '{{username}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_secret_password
+  action: type
+  target:
+    description: Password field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: Password
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: ATM Services
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: textbox
+      anchor: Online Services
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: textbox
+      anchor: Latest News
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: textbox
+      anchor: © Parasoft. All rights reserved.
+      match: exact
+      position: before
+    - kind: field_name
+      name: password
+  value: '{{password}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: click_log_in
+  action: click
+  target:
+    description: Log In button
+    strategies:
+    - kind: role_name
+      role: button
+      name: Log In
+      match: exact
+    - kind: anchored_role
+      role: button
+      anchor: Password
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Username
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Customer Login
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Solutions
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: Experience the difference
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: ATM Services
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: button
+      anchor: Online Services
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: button
+      anchor: Latest News
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: button
+      anchor: © Parasoft. All rights reserved.
+      match: exact
+      position: before
+  by: label
+  risk: safe
+  expect:
+    kind: element_visible
+    target:
+      description: the link that appeared
+      strategies:
+      - kind: role_name
+        role: link
+        name: Open New Account
+        match: exact
+      - kind: anchored_role
+        role: link
+        anchor: Account Services
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: link
+        anchor: Welcome
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: link
+        anchor: John Smith
+        match: exact
+        position: after
+    timeout_ms: 10000
+  outcomes: {}
+- id: click_bill_pay
+  action: click
+  target:
+    description: Bill Pay link
+    strategies:
+    - kind: role_name
+      role: link
+      name: Bill Pay
+      match: exact
+  by: label
+  risk: safe
+  expect:
+    kind: element_visible
+    target:
+      description: the textbox that appeared
+      strategies:
+      - kind: anchored_role
+        role: textbox
+        anchor: 'Payee Name:'
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: textbox
+        anchor: Enter payee information
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: textbox
+        anchor: Bill Payment Service
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: textbox
+        anchor: Account Services
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: textbox
+        anchor: Welcome
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: textbox
+        anchor: 'Address:'
+        match: exact
+        position: before
+      - kind: field_name
+        name: payee.name
+    timeout_ms: 10000
+  outcomes: {}
+- id: type_text_payee_name
+  action: type
+  target:
+    description: Payee Name field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Payee Name:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Enter payee information
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Bill Payment Service
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Account Services
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: Welcome
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Address:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: payee.name
+  value: '{{payee_name}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_address
+  action: type
+  target:
+    description: Address field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Address:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'City:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: payee.address.street
+  value: '{{payee_address}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_city
+  action: type
+  target:
+    description: City field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'City:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'State:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: payee.address.city
+  value: '{{payee_city}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_state
+  action: type
+  target:
+    description: State field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'State:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Zip Code:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: payee.address.state
+  value: '{{payee_state}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_zip_code
+  action: type
+  target:
+    description: Zip Code field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Zip Code:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Phone #:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: payee.address.zipCode
+  value: '{{payee_zip}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_phone_number
+  action: type
+  target:
+    description: Phone number field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Phone #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Account #:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: payee.phoneNumber
+  value: '{{payee_phone}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_account_number
+  action: type
+  target:
+    description: Account number field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Account #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Verify Account #:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: payee.accountNumber
+  value: '{{payee_account}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_verify_account_number
+  action: type
+  target:
+    description: Verify Account number field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Verify Account #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Amount: $'
+      match: exact
+      position: before
+    - kind: field_name
+      name: verifyAccount
+  value: '{{payee_account}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: type_text_amount
+  action: type
+  target:
+    description: Amount field
+    strategies:
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Amount: $'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: textbox
+      anchor: 'From account #:'
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: textbox
+      anchor: © Parasoft. All rights reserved.
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: textbox
+      anchor: 'Visit us at:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: amount
+  value: '{{amount}}'
+  by: label
+  risk: safe
+  outcomes: {}
+- id: select_from_account
+  action: select
+  target:
+    description: From account dropdown
+    strategies:
+    - kind: anchored_role
+      role: combobox
+      anchor: 'From account #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: 'Amount: $'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: 'Verify Account #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: 'Account #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: 'Phone #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: combobox
+      anchor: © Parasoft. All rights reserved.
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: combobox
+      anchor: 'Visit us at:'
+      match: exact
+      position: before
+    - kind: field_name
+      name: fromAccountId
+  value: '{{from_account}}'
+  by: label
+  risk: safe
+  outcomes:
+    option_not_found: FROM_ACCOUNT_NOT_AVAILABLE
+- id: click_send_payment
+  action: click
+  target:
+    description: Send Payment button
+    strategies:
+    - kind: role_name
+      role: button
+      name: Send Payment
+      match: exact
+    - kind: anchored_role
+      role: button
+      anchor: 'From account #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: 'Amount: $'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: 'Verify Account #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: 'Account #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: 'Phone #:'
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: button
+      anchor: © Parasoft. All rights reserved.
+      match: exact
+      position: before
+    - kind: anchored_role
+      role: button
+      anchor: 'Visit us at:'
+      match: exact
+      position: before
+  by: label
+  risk: risky
+  expect:
+    kind: element_visible
+    target:
+      description: the text that appeared
+      strategies:
+      - kind: anchored_role
+        role: text
+        anchor: Bill Payment to in the amount of from account was successful.
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: text
+        anchor: Bill Payment Complete
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: text
+        anchor: Account Services
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: text
+        anchor: Welcome
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: text
+        anchor: John Smith
+        match: exact
+        position: after
+      - kind: anchored_role
+        role: text
+        anchor: City Power
+        match: exact
+        position: before
+      - kind: field_id
+        id: payeeName
+      - kind: text
+        text: City Power
+        match: exact
+    timeout_ms: 10000
+  outcomes: {}
+- id: read_amount_paid
+  action: read
+  target:
+    description: Amount paid
+    strategies:
+    - kind: anchored_role
+      role: text
+      anchor: City Power
+      match: exact
+      position: after
+    - kind: field_id
+      id: amount
+  by: label
+  risk: safe
+  outcomes: {}
+success:
+  kind: element_visible
+  target:
+    description: the text that appeared
+    strategies:
+    - kind: anchored_role
+      role: text
+      anchor: Bill Payment to in the amount of from account was successful.
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: text
+      anchor: Bill Payment Complete
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: text
+      anchor: Account Services
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: text
+      anchor: Welcome
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: text
+      anchor: John Smith
+      match: exact
+      position: after
+    - kind: anchored_role
+      role: text
+      anchor: City Power
+      match: exact
+      position: before
+    - kind: field_id
+      id: payeeName
+    - kind: text
+      text: City Power
+      match: exact
+  timeout_ms: 10000
+outcomes:
+- name: FROM_ACCOUNT_NOT_AVAILABLE
+  classification: business_outcome
+  message: The application did not offer that choice for this customer.
+recorded:
+  at: '2026-09-13T01:37:28.560103Z'
+  run: discovery-a0b1a6f7c3
+  model: claude-haiku-4-5
+  goal: Pay a bill of 50 to City Power, 1 Main St, Springfield, IL 62701, phone 5551234567,
+    account 54321, from account 12345, and return the amount that was paid
+  evidence: evidence/discovery-a0b1a6f7c3

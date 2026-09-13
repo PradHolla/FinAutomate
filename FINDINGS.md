@@ -84,6 +84,23 @@ because an id survives a rebrand. So text started winning that preference over r
 a form control does not. The re-record then reproduced the original artifact exactly, all
 seventy-two strategies.
 
+**An element id that was different on the next page load.** The target app stamps a fresh UUID
+on one Bill Pay field every time the page loads, which we found by loading it three times and
+comparing. Verification cannot catch this: the id resolves perfectly on the snapshot it came
+from, and is gone by the next one. It would have shipped a rung that can never fire, making the
+ladder look deeper than it is - and a step whose only rung was that id would simply die.
+*Fix:* an id shaped like a UUID is never recorded. Narrow on purpose, because that is the
+generator we have actually seen, and the cost of missing another is a dead rung rather than a
+broken run.
+
+**A capability was still named after one run's values, in a second way.** The first fix
+generalized the title and id, but skipped any value of two characters or fewer, on the theory
+that replacing every "1" would rewrite unrelated text. So a bill payment recorded as
+`pay_bill_50_il_phone_account`: the amount and the state code, both real parameters, both too
+short to be swapped.
+*Fix:* match on word boundaries instead of length. That is what the threshold was reaching for.
+"50" is replaced where it stands alone and left alone inside "1250".
+
 **A capability was named after one run's values.** `open_new_savings_account...` for a
 capability whose account type is a parameter. A name is the first thing anyone believes.
 *Fix:* the title, description and id are generalized before they are written.
@@ -251,14 +268,6 @@ entry.
 the scripted one the agent-loop tests run against. That is evidence the seam is real, not evidence
 a Windows UI Automation driver would work. Building one needs Windows and a real desktop app, and
 the brief asks us to design for the real environment rather than build it.
-
-**A validation error is not distinguishable on these flows.** Replaying the loan with
-`loan_amount=abc` reports `APP_ERROR`: correct, but it does not say the input was at fault. We
-checked whether that is the application or us, and it is the application - ParaBank funnels a bad
-value into one generic error page. Its Bill Pay screen does carry real per-field validation, with
-stable ids like `validationModel-amount-invalid`, so the honest way to cover this row of the
-taxonomy is a third capability against that screen. A third capability for one row is the feature
-breadth the brief says it does not reward, so the row stays uncovered and stated.
 
 **No approval state, so no learning from a demonstration.** We capture what a person does during a
 handover, and turning that into a capability is a short step from machinery that already exists.

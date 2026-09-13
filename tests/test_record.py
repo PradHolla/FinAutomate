@@ -674,3 +674,79 @@ def test_text_is_still_used_when_nothing_actionable_appeared() -> None:
 
     assert isinstance(checkpoint, ElementVisible)
     assert any(getattr(s, "id", "") == "loanStatus" for s in checkpoint.target.strategies)
+
+
+# -- an id that is not the same id next time --------------------------------
+
+
+def test_an_id_minted_for_this_page_load_is_never_recorded() -> None:
+    """The target app stamps a fresh UUID on one Bill Pay field every load. It
+    verifies perfectly against the snapshot it came from and is gone by the next one,
+    which is exactly the kind of locator verification cannot catch."""
+    page = Snapshot(
+        url="/parabank/billpay.htm",
+        title="Bill Pay",
+        anchors=[TextAnchor(text="Phone #:", doc_order=0)],
+        controls=[
+            ctl(
+                "p1",
+                "textbox",
+                1,
+                field_name="payee.phoneNumber",
+                field_id="574d7043-4192-44c9-aa96-0fe96e868ef9",
+            )
+        ],
+    )
+
+    bundle = build_bundle(page.control("p1"), page, "the Phone field")
+
+    assert bundle is not None, "the field name is still a good way to find it"
+    assert all(getattr(s, "id", "") == "" for s in bundle.strategies)
+    assert any(getattr(s, "name", "") == "payee.phoneNumber" for s in bundle.strategies)
+
+
+def test_a_developer_written_id_is_still_recorded() -> None:
+    """The guard has to be narrow. Real ids are the most durable rung we have."""
+    page = Snapshot(
+        url="/x",
+        title="x",
+        anchors=[TextAnchor(text="Account type", doc_order=0)],
+        controls=[ctl("c1", "combobox", 1, field_id="fromAccountId")],
+    )
+
+    bundle = build_bundle(page.control("c1"), page, "the account dropdown")
+
+    assert bundle is not None
+    assert any(getattr(s, "id", "") == "fromAccountId" for s in bundle.strategies)
+
+
+# -- a capability must not be named after one run's values -------------------
+
+
+def generalize(goal: str, declared: dict[str, str]) -> str:
+    """Run the real swap with no browser and no model."""
+
+    from finautomate.discover import Discovery
+
+    run = Discovery.__new__(Discovery)
+    run.params, run.declared, run.outputs, run.read_values = {}, declared, [], []
+    return Discovery._generalize(run, goal)
+
+
+def test_a_short_parameter_value_is_still_generalized() -> None:
+    """A two-character state code or amount is a real parameter. Leaving it literal
+    named a capability `pay_bill_50_il_...`, after one run's numbers."""
+    out = generalize(
+        "Pay a bill of 50 to City Power, Springfield, IL 62701",
+        {"amount": "50", "payee_state": "IL", "payee_city": "Springfield"},
+    )
+    assert "50" not in out
+    assert "IL" not in out
+    assert "{{amount}}" in out and "{{payee_state}}" in out
+
+
+def test_a_value_inside_a_longer_word_is_left_alone() -> None:
+    """Whole words only. Replacing every "50" would rewrite "1250" too."""
+    out = generalize("Transfer 50 from account 1250", {"amount": "50"})
+    assert "1250" in out
+    assert out.count("{{amount}}") == 1

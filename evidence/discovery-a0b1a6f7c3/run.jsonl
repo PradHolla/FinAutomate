@@ -1,0 +1,57 @@
+{"at": "2026-09-13T01:36:30.986+00:00", "kind": "model_action", "step": 1, "tool": "type_text", "input": {"ref": "c8", "description": "Username field", "text": "john"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-13T01:36:30.987+00:00", "kind": "policy", "step": 1, "tool": "type_text", "control": "Username field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:31.020+00:00", "kind": "recorded_step", "id": "type_text_username", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:32.623+00:00", "kind": "model_action", "step": 2, "tool": "type_secret", "input": {"ref": "c9", "description": "Password field", "parameter": "password"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-13T01:36:32.623+00:00", "kind": "policy", "step": 2, "tool": "type_secret", "control": "Password field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:32.661+00:00", "kind": "recorded_step", "id": "type_secret_password", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:34.077+00:00", "kind": "model_action", "step": 3, "tool": "click", "input": {"ref": "c10", "description": "Log In button"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-13T01:36:34.077+00:00", "kind": "policy", "step": 3, "tool": "click", "control": "Log In button", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:34.167+00:00", "kind": "recorded_step", "id": "click_log_in", "action": "click", "risk": "safe"}
+{"at": "2026-09-13T01:36:34.189+00:00", "kind": "recorded_checkpoint", "step": "click_log_in", "wait_for": "the link that appeared"}
+{"at": "2026-09-13T01:36:36.569+00:00", "kind": "model_action", "step": 4, "tool": "click", "input": {"ref": "c11", "description": "Bill Pay link"}, "url": "http://localhost:8080/parabank/overview.htm"}
+{"at": "2026-09-13T01:36:36.569+00:00", "kind": "policy", "step": 4, "tool": "click", "control": "Bill Pay link", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:36.637+00:00", "kind": "recorded_step", "id": "click_bill_pay", "action": "click", "risk": "safe"}
+{"at": "2026-09-13T01:36:36.648+00:00", "kind": "recorded_checkpoint", "step": "click_bill_pay", "wait_for": "the textbox that appeared"}
+{"at": "2026-09-13T01:36:39.290+00:00", "kind": "model_action", "step": 5, "tool": "type_text", "input": {"ref": "c16", "description": "Payee Name field", "text": "City Power"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:39.290+00:00", "kind": "policy", "step": 5, "tool": "type_text", "control": "Payee Name field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:39.319+00:00", "kind": "recorded_step", "id": "type_text_payee_name", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:41.758+00:00", "kind": "model_action", "step": 6, "tool": "type_text", "input": {"ref": "c17", "description": "Address field", "text": "1 Main St"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:41.759+00:00", "kind": "policy", "step": 6, "tool": "type_text", "control": "Address field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:41.768+00:00", "kind": "recorded_step", "id": "type_text_address", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:43.301+00:00", "kind": "model_action", "step": 7, "tool": "type_text", "input": {"ref": "c18", "description": "City field", "text": "Springfield"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:43.302+00:00", "kind": "policy", "step": 7, "tool": "type_text", "control": "City field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:43.324+00:00", "kind": "recorded_step", "id": "type_text_city", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:44.830+00:00", "kind": "model_action", "step": 8, "tool": "type_text", "input": {"ref": "c19", "description": "State field", "text": "IL"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:44.830+00:00", "kind": "policy", "step": 8, "tool": "type_text", "control": "State field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:44.840+00:00", "kind": "recorded_step", "id": "type_text_state", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:46.365+00:00", "kind": "model_action", "step": 9, "tool": "type_text", "input": {"ref": "c20", "description": "Zip Code field", "text": "62701"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:46.366+00:00", "kind": "policy", "step": 9, "tool": "type_text", "control": "Zip Code field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:46.384+00:00", "kind": "recorded_step", "id": "type_text_zip_code", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:48.107+00:00", "kind": "model_action", "step": 10, "tool": "type_text", "input": {"ref": "c21", "description": "Phone number field", "text": "5551234567"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:48.108+00:00", "kind": "policy", "step": 10, "tool": "type_text", "control": "Phone number field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:48.125+00:00", "kind": "recorded_step", "id": "type_text_phone_number", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:49.762+00:00", "kind": "model_action", "step": 11, "tool": "type_text", "input": {"ref": "c22", "description": "Account number field", "text": "54321"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:49.763+00:00", "kind": "policy", "step": 11, "tool": "type_text", "control": "Account number field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:49.775+00:00", "kind": "recorded_step", "id": "type_text_account_number", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:51.161+00:00", "kind": "model_action", "step": 12, "tool": "type_text", "input": {"ref": "c23", "description": "Verify Account number field", "text": "54321"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:51.161+00:00", "kind": "policy", "step": 12, "tool": "type_text", "control": "Verify Account number field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:51.183+00:00", "kind": "recorded_step", "id": "type_text_verify_account_number", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:52.876+00:00", "kind": "model_action", "step": 13, "tool": "type_text", "input": {"ref": "c24", "description": "Amount field", "text": "50"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:52.876+00:00", "kind": "policy", "step": 13, "tool": "type_text", "control": "Amount field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:52.884+00:00", "kind": "recorded_step", "id": "type_text_amount", "action": "type", "risk": "safe"}
+{"at": "2026-09-13T01:36:55.274+00:00", "kind": "model_action", "step": 14, "tool": "select", "input": {"ref": "c25", "description": "From account dropdown", "label": "12345"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:36:55.275+00:00", "kind": "policy", "step": 14, "tool": "select", "control": "From account dropdown", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:36:55.301+00:00", "kind": "recorded_step", "id": "select_from_account", "action": "select", "risk": "safe"}
+{"at": "2026-09-13T01:37:03.773+00:00", "kind": "model_action", "step": 15, "tool": "click", "input": {"ref": "c26", "description": "Send Payment button"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:37:03.774+00:00", "kind": "policy", "step": 15, "tool": "click", "control": "Send Payment button", "verdict": "risky", "reason": "control 'Send Payment' matches risky 'Send Payment'"}
+{"at": "2026-09-13T01:37:03.779+00:00", "kind": "paused_before_risky", "step": 15}
+{"at": "2026-09-13T01:37:12.478+00:00", "kind": "model_action", "step": 16, "tool": "click", "input": {"ref": "c26", "description": "Send Payment button"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:37:12.479+00:00", "kind": "policy", "step": 16, "tool": "click", "control": "Send Payment button", "verdict": "risky", "reason": "control 'Send Payment' matches risky 'Send Payment'"}
+{"at": "2026-09-13T01:37:12.515+00:00", "kind": "recorded_step", "id": "click_send_payment", "action": "click", "risk": "risky"}
+{"at": "2026-09-13T01:37:12.737+00:00", "kind": "recorded_checkpoint", "step": "click_send_payment", "wait_for": "the text that appeared"}
+{"at": "2026-09-13T01:37:16.026+00:00", "kind": "model_action", "step": 17, "tool": "read", "input": {"ref": "c17", "description": "Amount paid", "output_name": "amount_paid"}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:37:16.027+00:00", "kind": "policy", "step": 17, "tool": "read", "control": "Amount paid", "verdict": "allow", "reason": ""}
+{"at": "2026-09-13T01:37:16.048+00:00", "kind": "recorded_step", "id": "read_amount_paid", "action": "read", "risk": "safe"}
+{"at": "2026-09-13T01:37:28.556+00:00", "kind": "model_action", "step": 18, "tool": "done", "input": {"summary": "Successfully paid a bill of $50.00 to City Power from account 12345. The bill payment was completed with all specified payee information.", "success_text": "Bill Payment Complete", "outputs": ["amount_paid"], "parameters": [{"name": "payee_name", "value": "City Power"}, {"name": "payee_address", "value": "1 Main St"}, {"name": "payee_city", "value": "Springfield"}, {"name": "payee_state", "value": "IL"}, {"name": "payee_zip", "value": "62701"}, {"name": "payee_phone", "value": "5551234567"}, {"name": "payee_account", "value": "54321"}, {"name": "amount", "value": "50"}, {"name": "from_account", "value": "12345"}]}, "url": "http://localhost:8080/parabank/billpay.htm"}
+{"at": "2026-09-13T01:37:28.557+00:00", "kind": "declared_parameters", "names": ["amount", "from_account", "payee_account", "payee_address", "payee_city", "payee_name", "payee_phone", "payee_state", "payee_zip"]}
+{"at": "2026-09-13T01:37:28.557+00:00", "kind": "run_finished", "outcome": "done", "steps_recorded": 16, "model_calls": 18, "tokens_in": 9990, "tokens_out": 3268}

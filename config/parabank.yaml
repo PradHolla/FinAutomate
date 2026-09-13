@@ -133,6 +133,35 @@ outcomes:
       match: contains
       timeout_ms: 1000
 
+  - name: VALIDATION_ERROR
+    classification: business_outcome
+    message: The application rejected a value the caller supplied.
+    # A business outcome, not a hard failure. The application read the argument and
+    # answered; nothing is broken and no person is needed. The caller passes a
+    # different value and it works. That makes it exit 2, the same class as asking
+    # for an account this customer does not own.
+    #
+    # Detected on the malformed-value wording because that is the only validation
+    # error these flows can actually reach: a capability fills every required field
+    # from a parameter, and takes the account number and its confirmation from the
+    # same one, so "required" and "does not match" cannot happen. A capability that
+    # left a field unset would need a wider detector.
+    detect:
+      kind: text_visible
+      text: Please enter a valid
+      match: contains
+      timeout_ms: 1000
+    # Which field, in the application's own words.
+    explain:
+      description: the field-level validation message
+      strategies:
+        - kind: field_id
+          id: validationModel-amount-invalid
+        - kind: anchored_role
+          role: text
+          anchor: 'Amount: $'
+          position: after
+
   - name: INTERSTITIAL
     classification: recoverable
     message: A notice was covering the page and was dismissed.

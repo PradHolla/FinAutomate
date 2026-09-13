@@ -334,8 +334,8 @@ ANCHOR_CHARS = (4, 60)
 the page; longer is usually a paragraph that will be reworded."""
 
 SHORTEST_SWAP = 2
-"""Below this, a value is too common to substitute safely. Replacing every "1"
-would rewrite unrelated text."""
+"""Below this, a value is too common to be worth keeping out of a locator. A one or
+two character value appears inside unrelated words and would forbid half the page."""
 
 
 def _slug(text: str, action: str) -> str:
@@ -476,8 +476,12 @@ class Discovery:
             },
         }
         for value, name in sorted(swaps.items(), key=lambda pair: -len(pair[0])):
-            if len(value) > SHORTEST_SWAP:
-                prose = prose.replace(value, f"{{{{{name}}}}}")
+            # Whole words only. A length threshold used to stand in for this and was
+            # too blunt: a two-character state code or amount is a real parameter, and
+            # leaving it literal names the capability after one run. Matching on word
+            # boundaries is what the threshold was reaching for - do not replace the
+            # "50" inside "1250".
+            prose = re.sub(rf"(?<!\w){re.escape(value)}(?!\w)", f"{{{{{name}}}}}", prose)
         return prose
 
     def run(self, goal: str, entry: str, app: str) -> Capability | None:

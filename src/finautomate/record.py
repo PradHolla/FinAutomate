@@ -5,6 +5,7 @@ only the ones verified by running the production resolver, so recorder and
 replayer cannot disagree.
 """
 
+import re
 from typing import Literal
 
 from finautomate.artifact import (
@@ -68,7 +69,7 @@ def _proposals(control: Control, snapshot: Snapshot) -> list[Strategy]:
 
     if control.field_name:
         out.append(FieldName(kind="field_name", name=control.field_name))
-    if control.field_id:
+    if control.field_id and not _generated(control.field_id):
         out.append(FieldId(kind="field_id", id=control.field_id))
 
     # A digit means data, not a label, and would only match the run it came from.
@@ -80,6 +81,26 @@ def _proposals(control: Control, snapshot: Snapshot) -> list[Strategy]:
 
 def _has_digit(text: str) -> bool:
     return any(character.isdigit() for character in text)
+
+
+_UUID = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z", re.I)
+
+
+def _generated(field_id: str) -> bool:
+    """Whether an element id was minted for this page load rather than written by
+    a developer.
+
+    Verification cannot catch these. The id resolves perfectly on the snapshot it
+    came from, and is gone by the next one. The target app stamps a fresh UUID on
+    one of its Bill Pay fields on every load, which we found by loading the page
+    three times and comparing.
+
+    Only the UUID shape, because that is the one we have actually seen. A different
+    generator would need its own rule, and the cost of missing one is a rung that
+    never fires rather than a broken run - the ladder carries other ways to find
+    the same control.
+    """
+    return bool(_UUID.match(field_id))
 
 
 def _anchored(control: Control, snapshot: Snapshot) -> list[Strategy]:

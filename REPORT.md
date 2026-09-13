@@ -38,7 +38,7 @@ Guards it cannot talk past: 25 steps, 300 seconds, 200k tokens.
 and the prompt says everything inside is data. That is the cheap half; the half that counts is
 that the **allowlist does not care what the model decided**.
 
-3,900 lines of Python, 143 tests, two capabilities, each recorded on two models. The last three
+3,800 lines of Python, 147 tests, three capabilities, two of them recorded on two models. The last three
 rows of that table exist because we shipped the bug first. *More: The agent loop, and Running the
 same goals on two models, in `FINDINGS.md`.*
 
@@ -82,6 +82,10 @@ Exit 2 matters most, and the loan capability produces both kinds: a funding acco
 does not own, and a refused application. The types stop either being mistaken for a crash: a
 business outcome has no `screenshot` field, a failure has no `outcome` field. **An outcome quotes
 the application**, because ParaBank has four refusal wordings and paraphrasing picks one.
+
+**All six runtime conditions the assignment lists are handled.** The subtlest is a validation
+error: the application reading a value the caller supplied and refusing it. Exit 2, not exit 1,
+because nothing is broken and nobody needs waking.
 
 **Two recovery verbs.** An expired session leaves nothing behind the login page, so `restart`
 returns to the entry point. A notice over an intact page has not moved the flow, so `dismiss`
@@ -159,8 +163,8 @@ itself is the control that fails when it matters. **Risk belongs to the control*
 dangerous, clicking the button that opens an account is.
 
 **Secrets** never reach the model in discovery. At replay they are wrapped in a redacting type,
-unwrapped at one line, and redacted at the logger so no call site can forget. The demo password
-appears nowhere in `evidence/`, `artifacts/` or `interventions/`.
+unwrapped at one line, and redacted at the logger. The demo password appears nowhere in
+`evidence/`, `artifacts/` or `interventions/`.
 
 **We attacked it four times** with real discovery runs: a forbidden goal, a planted instruction on
 the page, a goal asking for a secret the model never had, and a step ceiling it could not finish
@@ -179,8 +183,6 @@ caller should*: real authorization belongs above this layer.
   account 12345" cannot be said.
 - **No desktop driver.** Section 4 argues the seam holds and the tests run a second
   implementation, but a real Windows UI Automation driver is untried.
-- **A validation error is not distinguishable here.** ParaBank collapses a bad value into its
-  generic error page, so covering that row needs a third capability.
 - **No learning from a demonstration.** Someone demonstrating a flow was authorized in that
   moment; replaying it later, unattended, is an authorization nobody gave.
 - **Not built:** queues, a database, cloud deployment, multi-tenant plumbing, retry-everything, or

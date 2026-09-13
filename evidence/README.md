@@ -10,13 +10,14 @@ front and redacts them from everything it writes.
 
 ## Discovery runs
 
-Two capabilities, each recorded by Claude Haiku 4.5 driving the real UI once, plus the runs
+Three capabilities, each recorded by Claude Haiku 4.5 driving the real UI once, plus the runs
 that produced nothing on purpose.
 
 | Run | Produced | Model turns |
 |---|---|---|
 | `discovery-dda3f3c3c2/` | `artifacts/open_new_account_funded_from_account.yaml`, 8 steps | 10 |
 | `discovery-f889b045f3/` | `artifacts/apply_for_loan_with_down_payment.yaml`, 9 steps | 11 |
+| `discovery-a0b1a6f7c3/` | `artifacts/pay_bill_phone_account_from_account.yaml`, 16 steps | 18 |
 | `discovery-e1a2b9c0f1/` | the account capability's first recording, now superseded | 9 |
 | `discovery-d04cbd4e04/` | the loan capability's first recording, now superseded | 11 |
 | `discovery-49c5e9bcd9/` | nothing kept. Asked to sign out, refused the Log Out control | 11 |
@@ -75,11 +76,14 @@ No model in any of these.
 | `replay-2631fc3299/` | success after recovery | 0 | the proxy dropped the session mid-flow. See `recovering`, then the run restarting |
 | `replay-e4e1d09e68/` | success after recovery | 0 | a notice covered the page. It was cleared and the step retried, not restarted |
 | `replay-25ab152f52/` | success | 0 | the proxy made the app slow. Still succeeds, in about 15s |
+| `replay-ca9ed2c1c6/` | success | 0 | pay a bill, 16 steps. Returns `$50.00`, read from a table cell rather than a form field |
+| `replay-55b429c3e3/` | business outcome | 2 | **the application refused a value the caller gave it.** `amount=abc` |
 | `replay-40a629e583/` | success at a second tenant | 0 | the same artifact against a rebranded ParaBank. 8 of 8 steps fell to a lower rung |
 
-The three exit-2 runs are the point of the error taxonomy and they are not the same thing. One
-is the caller asking for an account that is not theirs. The other two are the bank weighing an
-application and declining it. All three are answers; none is a crash.
+The four exit-2 runs are the point of the error taxonomy and they are not the same thing. One is
+the caller asking for an account that is not theirs. Two are the bank weighing an application and
+declining it. The fourth is the application reading a value the caller supplied and refusing it.
+All four are answers; none is a crash, and none needs a person.
 
 The two refusals carry different sentences because the application wrote them, not us. It has
 four wordings depending on which of funds and down payment fell short, and the run reads
