@@ -45,6 +45,16 @@ meant to declare, declared it, and the run was refused because no step sets it. 
 running it, not by reading it.
 *Fix:* parameters and returned values are listed separately.
 
+**We waited six seconds for things that could not happen.** After every action the recorder
+polls the screen until it changes, up to six seconds, because this app swaps panels after the
+network goes quiet and an immediate snapshot looks unchanged. It did that after *every* turn,
+including ones where nothing had happened: a refused action, and a `read`, which by definition
+leaves the page alone. Measured on a real run, that was 18 seconds of 38. There was a
+correctness bug inside it too - a screen that moved late after a refused action would have had
+its checkpoint attached to the step before, which did not cause it.
+*Fix:* wait only when a step was recorded this turn and that step was not a read. The same run
+went from 38 seconds to 29, and produced a byte-identical artifact.
+
 **Prompt caching had never worked.** `cache_control` sat on the system block, which is
 about 1,700 tokens, and Haiku 4.5 will not cache a prefix under 4,096. No error, no
 cache, on every run ever made. We were also caching the fixed part while the conversation

@@ -442,3 +442,58 @@ def test_a_rerecord_tells_the_model_the_names_already_in_use(tmp_path: Path) -> 
     assert "new_account_id" in opening, "output names drift too, and break callers too"
     assert "It takes these parameters:" in opening
     assert "It returns these values" in opening
+
+
+# -- not waiting for something that cannot happen ---------------------------
+
+
+def test_a_refused_action_is_not_followed_by_a_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After each action the recorder polls the screen for up to six seconds, because
+    this app swaps panels after the network goes quiet. A refused action changed
+    nothing, so that is six seconds spent waiting for something that cannot arrive -
+    and if the screen did move late, the checkpoint would land on the step before,
+    which did not cause it.
+    """
+    waits: list[str] = []
+
+    def note(_run: Discovery, before: Snapshot) -> None:
+        waits.append(before.url)
+
+    monkeypatch.setattr(Discovery, "_record_wait", note)
+    model = FakeModel(
+        turn(call("click", ref="c3", description="the Log In button")),
+        turn(call("click", ref="c9", description="the Log Out link")),
+    )
+
+    _, run = run_discovery(FakeSurface(login_screen()), model, tmp_path)
+
+    assert [s.id for s in run.steps] == ["click_log_in"], "the Log Out click is refused"
+    assert len(waits) == 1, "only the action that actually happened is waited on"
+
+
+def test_a_read_is_not_followed_by_a_wait(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A read looks at the screen and leaves it alone, so the settle wait has nothing
+    to wait for. Measured on a real run, it cost ten seconds."""
+    waits: list[str] = []
+
+    def note(_run: Discovery, before: Snapshot) -> None:
+        waits.append(before.url)
+
+    monkeypatch.setattr(Discovery, "_record_wait", note)
+    model = FakeModel(
+        turn(
+            call(
+                "read",
+                ref="c6",
+                description="the new account number",
+                output_name="new_account_number",
+            )
+        )
+    )
+
+    _, run = run_discovery(FakeSurface(opened_screen()), model, tmp_path)
+
+    assert [s.action for s in run.steps] == ["read"]
+    assert waits == [], "a read has nothing to settle"

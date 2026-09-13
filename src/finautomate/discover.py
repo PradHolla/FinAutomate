@@ -517,13 +517,15 @@ class Discovery:
                 break
 
             # Every tool_use must be answered or the next request is rejected.
+            recorded = len(self.steps)
             answers = [(block.id, self._perform(block, snapshot, step_number))]
             answers += [
                 (e.id, "Not run. One action per turn - look at the screen again.")
                 for e in blocks[1:]
             ]
             messages.append(_tool_results(answers))
-            self._record_wait(snapshot)
+            if self._worth_waiting_for(recorded):
+                self._record_wait(snapshot)
 
         self.evidence.event(
             "run_finished",
@@ -559,6 +561,18 @@ class Discovery:
                 f"{current.name!r}, not a {expected.role} named {expected.name!r}."
             )
         return ""
+
+    def _worth_waiting_for(self, steps_before: int) -> bool:
+        """Whether this turn could still change the screen.
+
+        The settle wait below costs up to six seconds, and two kinds of turn can never
+        repay it. A refused action did nothing, so nothing is coming - and if the screen
+        moved late anyway, the checkpoint would be attached to the step before, which
+        did not cause it. A read looks at the screen and leaves it alone.
+        """
+        if len(self.steps) == steps_before:
+            return False
+        return self.steps[-1].action != "read"
 
     def _record_wait(self, before: Snapshot) -> None:
         """Wait for the page to settle, then record what changed as the checkpoint.

@@ -15,7 +15,7 @@ that produced nothing on purpose.
 
 | Run | Produced | Model turns |
 |---|---|---|
-| `discovery-dda3f3c3c2/` | `artifacts/open_new_account_funded_from_account.yaml`, 8 steps | 10 |
+| `discovery-af05e047ef/` | `artifacts/open_new_account_funded_from_account.yaml`, 8 steps | 10 |
 | `discovery-f889b045f3/` | `artifacts/apply_for_loan_with_down_payment.yaml`, 9 steps | 11 |
 | `discovery-a0b1a6f7c3/` | `artifacts/pay_bill_phone_account_from_account.yaml`, 16 steps | 18 |
 | `discovery-e1a2b9c0f1/` | the account capability's first recording, now superseded | 9 |
