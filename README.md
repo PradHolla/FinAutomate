@@ -444,10 +444,6 @@ The model's own opinion about risk is recorded as a hint. The config decides.
 
 ## Handing the session to a person
 
-This is a **replay-time** mechanism. Discovery has no equivalent and does not need one: a person
-typed that command, it costs money, and it runs once, so it is attended by definition. It opens a
-real account without asking anybody, which is the point of recording it.
-
 `click_open_new_account_2` opens a real bank account, so the artifact marks it risky and an
 unattended run stops there. That is what `--attended` has been skipping past. Drop it, and add
 a wait instead:
@@ -503,6 +499,55 @@ right behavior for an unattended queue: tell the caller a person is needed rathe
 `evidence/replay-86ece1cfad/` is a real one, driven by hand. Its `intervention.json` holds the
 whole record: which step, why it stopped, what was on screen, who decided, and the click they
 made while they held the session.
+
+## When the model gets stuck while recording
+
+A person can be brought into a **discovery** run too, and this is the more interesting half: what
+they do becomes part of the recording, not just part of the log.
+
+`config/parabank-human-commit.yaml` is a tenant whose policy forbids the agent from committing an
+account opening at all. It may fill the form; a person presses the button. Run it with a wait:
+
+```bash
+uv run finautomate reset
+
+uv run finautomate discover \
+  "Open a new SAVINGS account funded from account 12345, and return the new account number" \
+  --param username=john --secret password=demo \
+  --config config/parabank-human-commit.yaml \
+  --wait-for-human 600 --headed
+```
+
+The model logs in, opens the form and fills both dropdowns. Then it reaches the button, is refused,
+and calls `stuck`. The run holds the browser open on that screen and prints a request.
+
+**Click the button yourself**, wait for the confirmation, then in another terminal:
+
+```bash
+uv run finautomate resolve <id> --handled --operator you --risky
+```
+
+`--risky` is you saying: *this one is irreversible, a person should be here every time.* Without it
+the step is recorded as ordinary. Either way, your click is matched back to a control on the screen
+you were handed and written into the recording as a real step with a full locator ladder - the same
+verified path the model's own steps go through.
+
+The result is a capability with your step in it:
+
+```
+click_open_new_account_2   click   risk=risky   <-- a person, every time
+```
+
+Replay it unattended and it stops right there and asks for somebody. Replay it with `--attended` and
+it runs the whole flow. The classification you gave on the command line is now part of the
+capability, permanently.
+
+`evidence/discovery-8fd30e32f8/` is a real one, with the capability it produced sitting next to the
+log that produced it.
+
+**If the click cannot be matched to exactly one control, nothing is written.** A recording with a
+step missing does not fail cleanly later; it fails halfway through, having already done half the
+job. So the run says which action it could not place and writes no capability at all.
 
 ## Re-recording when the application changes
 

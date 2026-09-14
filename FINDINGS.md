@@ -77,6 +77,41 @@ printed, which is why this went unseen for so long.
 
 ---
 
+## Bringing a person into a recording
+
+Six bugs came out of one afternoon building the discovery handover, every one of them found by
+running it with a real person and a real browser rather than by reading the code.
+
+**Nothing a person did was ever delivered.** Playwright's sync client only hands over what a page
+reports while you are talking to the page, and it pumps its message loop when you do. My wait loop
+slept and read a file, so two entire runs captured nothing at all. Replay's equivalent loop never hit
+this because it calls `observe()` each time round to notice the screen moving.
+*Fix:* touch the page every second while waiting.
+
+**A handover that captured nothing was read as "the person did nothing".** So a run shipped a
+capability with two holes where steps should be.
+*Fix:* `handled` with nothing recorded is a gap, and a gap means no capability.
+
+**A step recorded from a person got no checkpoint.** The model's steps get one from the loop; a
+person's did not, so replay clicked the button and read the account number before the application
+had caught up. Passed the handover, failed on the step after it.
+*Fix:* wait and attach a checkpoint after a handover, exactly as after a model action.
+
+**One label, two controls.** The target app calls both the menu link and the submit button "Open New
+Account", so a person's click could not be placed and nothing could be recorded. The description the
+page gives carries the tag as well as the label, and I was throwing the tag away.
+*Fix:* match on both. `a "Open New Account"` and `input "Open New Account"` name one control each.
+
+**One policy rule denied both of them.** A rule written for the button stopped the agent at the menu
+link too, so a person was asked to approve a navigation nobody needs to approve.
+*Fix:* a rule may name the kind of control it means - `button:Open New Account`. Unqualified rules
+still match any role, which is what you want for something like Log Out.
+
+**A link spent the one warning meant for the button.** The reminder that fires before the point of no
+return is one-shot. Spent on a menu link sharing the button's label, it never reached the button, and
+the model submitted a form with a field still on its default that was therefore never recorded.
+*Fix:* a link never commits, for the same reason it is never risky - it only navigates.
+
 ## Recording
 
 **Customer data ended up inside a locator.** A recorded strategy read

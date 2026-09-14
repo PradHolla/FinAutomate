@@ -132,14 +132,22 @@ so fixing drift leaves callers alone.
 
 ## 5. Escalation and handoff
 
-**Handover is a replay-time mechanism, and discovery deliberately has none.** Discovery is attended
-by definition: a person typed the command, it costs money, it happens once, and asking permission
-per action would mean approving nearly every step of a run whose purpose is exploration. Its
-controls are different in kind - the allowlist refuses outright, guards cap the run, and the first
-irreversible action is refused once so the model checks the fields it left on defaults.
+A run needs a person in two places, and both use one mechanism: raise a request, hold the live
+session, record what they do, take control back. **In replay**, when a step the recording marked
+irreversible comes up unattended. **In discovery**, when the model calls `stuck`.
 
-A replay needs a person when it hits a hard failure, or when a step the recording marked
-irreversible comes up with nobody watching.
+The discovery one is the more interesting, because what the person does becomes part of the
+recording rather than only part of the log. Their click is matched back to a control on the screen
+they were handed and recorded as a step with a full locator ladder, through the same verified path
+the model's own steps take. If it matches anything other than exactly one control, nothing is
+written: a recording with a step missing fails halfway through, having already done half the job.
+
+**They also classify what they did.** `resolve --handled --risky` records that step as one a person
+must be present for, and every unattended replay stops there from then on - a human teaching the
+system its own policy, on machinery that already existed.
+`evidence/discovery-8fd30e32f8/` is a real one: policy forbade the agent the final button, a person
+pressed it and marked it risky, and the two replays beside it show the capability running attended
+and stopping unattended.
 
 **Who is in control is an explicit lease**: `agent`, `human` or `none`, in a file rather than memory,
 because the worker and the operator are different processes. The request carries the step, why it
@@ -152,7 +160,7 @@ the same log the machine writes to. A bank cannot have a gap reading "a human di
 acted instead, so the step is skipped. Collapsing those loses what an audit cares about. Control
 returns to the agent on every path, rejection included.
 
-`evidence/replay-86ece1cfad/` is a real one, driven by hand: the step the person did shows no
+`evidence/replay-86ece1cfad/` is the replay side, driven by hand: the step the person did shows no
 locator, because none was used.
 
 ---
