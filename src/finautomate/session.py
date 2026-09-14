@@ -38,7 +38,9 @@ class Intervention(BaseModel):
 
     id: str
     run: str
-    capability: str
+    capability: str | None = None
+    """Optional because a discovery run has no capability id yet - it is deciding what
+    the capability is."""
     step: str
     reason: str
     kind: Literal["risky_step"] = "risky_step"
@@ -62,9 +64,25 @@ class Intervention(BaseModel):
     note: str | None = None
     human_actions: list[HumanAction] = Field(default_factory=list)
 
+    risky: bool = False
+    """Set by the operator on resolve. Means: what I just did is irreversible, so record
+    it as a step a person has to be present for every time it replays.
+
+    A person classifying their own action is the only source of this. Nothing infers it."""
+
     @property
     def open(self) -> bool:
         return self.status == "open"
+
+
+def _when(reported: object) -> datetime:
+    """The moment the page said it happened, or now if it did not say."""
+    if isinstance(reported, str):
+        try:
+            return datetime.fromisoformat(reported)
+        except ValueError:
+            pass
+    return datetime.now(UTC)
 
 
 class InterventionStore:
@@ -104,6 +122,7 @@ class InterventionStore:
         *,
         operator: str | None = None,
         note: str | None = None,
+        risky: bool = False,
     ) -> Intervention:
         current = self.read(intervention_id)
         if not current.open:
@@ -117,6 +136,7 @@ class InterventionStore:
                 "resolved": datetime.now(UTC),
                 "operator": operator,
                 "note": note,
+                "risky": risky,
             }
         )
         self.write(updated)
@@ -127,7 +147,7 @@ class InterventionStore:
         current = self.read(intervention_id)
         captured = [
             HumanAction(
-                at=datetime.now(UTC),
+                at=_when(a.get("at")),
                 kind=str(a.get("kind", "")),
                 target=str(a.get("target", ""))[:120],
                 value=str(a.get("value", ""))[:120],

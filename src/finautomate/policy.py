@@ -25,6 +25,21 @@ class Decision:
         return self.verdict == "deny"
 
 
+def _matches(pattern: str, name: str, role: str) -> bool:
+    """Whether a rule names this control.
+
+    A rule is a name, optionally qualified by role as `button:Open New Account`.
+    The qualifier exists because applications reuse one label between a menu item and
+    the button it leads to - the target app does exactly that - so an unqualified rule
+    meant for the button silently blocks the link as well. An unqualified rule still
+    matches any role, which is usually what you want for something like Log Out.
+    """
+    wanted_role, _, wanted = pattern.rpartition(":")
+    if wanted_role and role and wanted_role.strip().casefold() != role.strip().casefold():
+        return False
+    return bool(name) and wanted.strip().casefold() in name
+
+
 class Policy(BaseModel):
     """Loaded from config. Everything not permitted here is refused."""
 
@@ -56,17 +71,34 @@ class Policy(BaseModel):
 
         name = control_name.strip().casefold()
         for denied in self.denied_control_names:
-            if denied.casefold() in name and name:
+            if _matches(denied, name, role):
                 return Decision("deny", f"control {control_name!r} matches denied {denied!r}")
 
         # A link only navigates. Here the nav link and the submit button share the
         # name "Open New Account", so matching on name alone would flag a page visit.
         if role != "link":
             for risky in self.risky_control_names:
-                if risky.casefold() in name and name:
+                if _matches(risky, name, role):
                     return Decision("risky", f"control {control_name!r} matches risky {risky!r}")
 
         return Decision("allow", "")
+
+    def commits(self, control_name: str, role: str = "") -> bool:
+        """Whether this control is one that creates, moves or destroys something.
+
+        Asked separately from `decide` because a control can be both risky and denied,
+        and the denial answers first. What is risky about it still matters: it is the
+        last moment anything on the form can still be changed.
+
+        A link never commits, for the same reason it is never risky: it only navigates,
+        and applications label the menu item and the button it leads to identically.
+        Without this the one-shot warning was spent on the link and never reached the
+        button, which is the moment it exists for.
+        """
+        if role == "link":
+            return False
+        name = control_name.strip().casefold()
+        return any(_matches(r, name, role) for r in self.risky_control_names)
 
     def check_path(self, path: str) -> Decision:
         if "://" in path:

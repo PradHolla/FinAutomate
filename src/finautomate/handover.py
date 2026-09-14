@@ -6,6 +6,7 @@ records a password, and the listeners are passive so they don't change how the
 page behaves.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 from playwright.sync_api import Error as PlaywrightError
@@ -68,7 +69,9 @@ def start_watching(page: Page, sink: list[dict[str, Any]]) -> None:
     """
 
     def receive(_source: dict[str, Any], action: dict[str, Any]) -> None:
-        sink.append(action)
+        # Stamped here, when the page reports it. Stamping at filing time made every
+        # action in a handover look simultaneous, because that is when they were written.
+        sink.append({**action, "at": datetime.now(UTC).isoformat()})
 
     try:
         page.expose_binding(BINDING, receive)

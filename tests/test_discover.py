@@ -13,6 +13,7 @@ it wants to check and no test costs money.
 """
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,6 +26,7 @@ from finautomate.artifact import Capability, load_capability
 from finautomate.discover import Discovery
 from finautomate.evidence import Evidence
 from finautomate.policy import Guards, Policy
+from finautomate.session import HumanAction, Intervention
 from finautomate.surface.models import Control, Snapshot, Surface, TextAnchor
 
 REFERENCE = Path(__file__).parent / "fixtures" / "reference_capability.yaml"
@@ -184,6 +186,7 @@ def run_discovery(
     secrets: dict[str, str] | None = None,
     max_steps: int = 25,
     inherit: Capability | None = None,
+    handover: object | None = None,
 ) -> tuple[Capability | None, Discovery]:
     run = Discovery(
         surface=surface,
@@ -194,6 +197,7 @@ def run_discovery(
         params=params if params is not None else {"username": "john"},
         secrets=secrets if secrets is not None else {"password": "demo"},
         inherit=inherit,
+        handover=cast(Any, handover),
     )
     return run.run(goal, "/parabank/index.htm", "parabank"), run
 
@@ -497,3 +501,193 @@ def test_a_read_is_not_followed_by_a_wait(tmp_path: Path, monkeypatch: pytest.Mo
 
     assert [s.action for s in run.steps] == ["read"]
     assert waits == [], "a read has nothing to settle"
+
+
+# -- a person unblocking a stuck recording ----------------------------------
+
+
+class FakePerson:
+    """An operator who does something and then says what kind of thing it was."""
+
+    def __init__(
+        self,
+        *did: HumanAction,
+        status: str = "handled",
+        risky: bool = False,
+        moves: FakeSurface | None = None,
+    ) -> None:
+        self.did, self.status, self.risky = list(did), status, risky
+        self.asked: list[tuple[str, str]] = []
+        self.moves = moves
+        """The screen they act on. A person doing something moves the page, and a fake
+        that does not move cannot show whether the run noticed."""
+
+    def request(self, step: str, reason: str, screen: list[str]) -> str:
+        self.asked.append((step, reason))
+        assert screen, "the person needs to be told what was on the screen"
+        return "iv1"
+
+    def wait(self, intervention_id: str) -> Intervention | None:
+        if self.status == "nobody":
+            return None
+        if self.moves is not None and self.did:
+            self.moves._advance()
+        return Intervention(
+            id=intervention_id,
+            run=intervention_id,
+            step="step 1",
+            reason="held",
+            status=self.status,  # type: ignore[arg-type]
+            operator="pnh",
+            risky=self.risky,
+            human_actions=self.did,
+        )
+
+
+def clicked(target: str) -> HumanAction:
+    return HumanAction(at=datetime.now(UTC), kind="click", target=target)
+
+
+def test_what_a_person_did_becomes_a_real_step(tmp_path: Path) -> None:
+    """The difference between a person unblocking a run and a person teaching it. Their
+    click is matched back to a control on the screen we handed them, and recorded through
+    the same verified path as anything the model does."""
+    person = FakePerson(clicked('input "Open New Account"'))
+    model = FakeModel(
+        turn(call("stuck", reason="policy will not let me click that")),
+        turn(call("done", summary="opened", success_text="Account Opened", parameters=[])),
+    )
+
+    capability, run = run_discovery(
+        FakeSurface(account_screen(), opened_screen()), model, tmp_path, handover=person
+    )
+
+    assert person.asked, "the person must actually have been asked"
+    assert [s.action for s in run.steps] == ["click"]
+    assert run.steps[0].target is not None, "a human step still gets a real locator ladder"
+    assert capability is not None, "the run carries on and still produces a capability"
+
+
+def test_a_person_can_mark_their_own_action_as_needing_a_person(tmp_path: Path) -> None:
+    """The operator classifies what they just did, and the recording carries it forward:
+    every unattended replay will stop at that step and ask."""
+    person = FakePerson(clicked('input "Open New Account"'), risky=True)
+    model = FakeModel(
+        turn(call("stuck", reason="not allowed")),
+        turn(call("done", summary="opened", success_text="Account Opened", parameters=[])),
+    )
+
+    _, run = run_discovery(
+        FakeSurface(account_screen(), opened_screen()), model, tmp_path, handover=person
+    )
+
+    assert [s.risk for s in run.steps] == ["risky"]
+
+
+def test_an_action_that_matches_nothing_writes_no_capability(tmp_path: Path) -> None:
+    """A recording with a step missing does not fail cleanly at replay time - it fails
+    halfway through, having already done half the job. Better to write nothing."""
+    person = FakePerson(clicked('button "Something Not On This Screen"'))
+    model = FakeModel(
+        turn(call("stuck", reason="not allowed")),
+        turn(call("done", summary="opened", success_text="Account Opened", parameters=[])),
+    )
+
+    capability, run = run_discovery(
+        FakeSurface(account_screen(), opened_screen()), model, tmp_path, handover=person
+    )
+
+    assert capability is None
+    assert "Something Not On This Screen" in run.complaint
+    assert "human_action_unmatched" in events(tmp_path)
+
+
+def test_a_rejected_handover_records_nothing_the_person_did(tmp_path: Path) -> None:
+    """They clicked something and then said do not proceed. The click must not be taken
+    as permission: rejection is a decision about the run, not a demonstration."""
+    person = FakePerson(clicked('input "Open New Account"'), status="rejected")
+    model = FakeModel(turn(call("stuck", reason="not allowed")))
+
+    capability, run = run_discovery(FakeSurface(account_screen()), model, tmp_path, handover=person)
+
+    assert capability is None
+    assert run.steps == [], "a rejected handover teaches the recording nothing"
+
+
+def test_without_the_flag_a_stuck_run_just_ends(tmp_path: Path) -> None:
+    """The handover is opt-in. Nothing waits for a person who was never offered."""
+    model = FakeModel(turn(call("stuck", reason="cannot do it")))
+
+    capability, _ = run_discovery(FakeSurface(account_screen()), model, tmp_path)
+
+    assert capability is None
+    assert '"outcome": "stuck"' in events(tmp_path)
+
+
+def test_two_controls_answering_to_the_same_label_record_nothing(tmp_path: Path) -> None:
+    """The page reports a tag and a label, not a control. If two controls answer to that
+    label there is no way to know which one the person touched, and guessing is how
+    automation quietly records the wrong thing."""
+    twins = Snapshot(
+        url="/x",
+        title="x",
+        anchors=[TextAnchor(text="Pick one", doc_order=0)],
+        controls=[
+            Control(ref="a1", role="button", name="Continue", doc_order=1),
+            Control(ref="a2", role="button", name="Continue", doc_order=2),
+        ],
+    )
+    person = FakePerson(clicked('input "Continue"'))
+    model = FakeModel(
+        turn(call("stuck", reason="not allowed")),
+        turn(call("done", summary="x", success_text="Done", parameters=[])),
+    )
+
+    capability, run = run_discovery(FakeSurface(twins), model, tmp_path, handover=person)
+
+    assert run.steps == []
+    assert capability is None
+    assert "Continue" in run.complaint
+
+
+def test_a_denied_commit_control_still_gets_the_defaults_reminder(tmp_path: Path) -> None:
+    """A tenant can forbid the agent from committing at all, so the button is denied
+    rather than risky. The denial used to answer first and the reminder never fired, so
+    the model went from refused straight to stuck with fields still on their defaults -
+    and a field it never set is not in the recording. Found by running it."""
+    strict = Policy(
+        allowed_path_prefix="/parabank/",
+        denied_control_names=("Open New Account",),
+        risky_control_names=("Open New Account",),
+    )
+    model = FakeModel(turn(call("click", ref="c5", description="the Open New Account button")))
+    run = Discovery(
+        surface=FakeSurface(account_screen()),
+        client=cast(Anthropic, model),
+        policy=strict,
+        guards=Guards(max_steps=25),
+        evidence=Evidence(tmp_path, "run", frozenset()),
+        params={"username": "john"},
+        secrets={"password": "demo"},
+    )
+    run.run("open an account", "/parabank/index.htm", "parabank")
+
+    assert run.warned_before_risky, "the last editable moment is the last editable moment"
+    assert "paused_before_risky" in (tmp_path / "run" / "run.jsonl").read_text(encoding="utf-8")
+    assert run.steps == [], "and it is still denied"
+
+
+def test_a_step_from_a_person_gets_a_checkpoint_too(tmp_path: Path) -> None:
+    """Replay has no eyes. A step that does not say what it produced is followed
+    immediately by the next one, before the application has caught up - which is how a
+    recorded handover passed the click and then failed on the read after it."""
+    surface = FakeSurface(account_screen(), opened_screen())
+    person = FakePerson(clicked('input "Open New Account"'), risky=True, moves=surface)
+    model = FakeModel(
+        turn(call("stuck", reason="not allowed")),
+        turn(call("done", summary="opened", success_text="Account Opened", parameters=[])),
+    )
+
+    _, run = run_discovery(surface, model, tmp_path, handover=person)
+
+    assert run.steps[-1].expect is not None, "the person's step must say what it produced"

@@ -1,0 +1,191 @@
+# Runtime configuration for the ParaBank target.
+#
+# Nothing here is a secret. The API key comes from the environment, and the
+# capability's own parameters are supplied per invocation.
+
+base_url: http://localhost:8080
+
+policy:
+  # The agent cannot navigate outside the application it was pointed at.
+  allowed_path_prefix: /parabank/
+
+  allowed_actions: [navigate, click, type, select, read]
+
+  # Never, whatever the model decides. The admin page can wipe the database and
+  # needs no login, which is precisely why it is listed.
+  denied_control_names:
+    - Admin Page
+    - Log Out
+    # This tenant does not let the agent commit an account opening at all. It may fill
+    # the form; a person presses the button. That is a policy a bank can reasonably
+    # write, and it is what the agent runs into during discovery: it gets refused, calls
+    # `stuck`, and a person finishes the step and says whether it may ever be automated.
+    # Qualified by role on purpose. The menu link carries the same label, and an
+    # unqualified rule would deny that too - stopping the agent before it ever
+    # reached the form, and asking a person for a step nobody needs to approve.
+    - button:Open New Account
+
+  # Blocking the control is not enough on its own. A discovery run, asked to sign out,
+  # was refused the Log Out link and navigated to /parabank/logout.htm instead.
+  denied_paths:
+    - /parabank/logout.htm
+    - /parabank/admin.htm
+
+  # Permitted while discovering, because discovering is the point. Recorded as
+  # risky so that an unattended replay stops here and asks a person.
+  risky_control_names:
+    - Open New Account
+    - Transfer
+    - Send Payment
+    - Withdraw
+    - Apply Now
+
+# Used by `finautomate reset`, which is an operator command, not something the
+# agent can reach. The policy above denies the agent the admin page precisely
+# because it can wipe the database; a person typing this command has decided to.
+reset:
+  path: /parabank/admin.htm
+  initialize: Initialize
+  clean: Clean
+  confirms: Database
+
+guards:
+  max_steps: 25
+  max_seconds: 300
+  max_tokens_total: 200000
+
+# Runtime conditions this application produces, and what replay should do about
+# them. Declared here rather than in a capability for two reasons.
+#
+# A discovery run can only record what it saw, and nothing goes wrong on a healthy
+# app - so no recording will ever contain these. And they are facts about the
+# application, not about one flow through it: every capability recorded against
+# ParaBank needs the same clauses, and a second institution running the same
+# product can reasonably answer differently.
+#
+# A capability that declares a name itself keeps its own version.
+outcomes:
+  - name: SESSION_EXPIRED
+    classification: recoverable
+    message: The session ended mid-flow and had to be re-established.
+    # When the session dies, ParaBank serves its error page at whatever URL was
+    # asked for - and that page still carries the login panel in the left column.
+    # The address bar looks right either way, so the only reliable signal is a
+    # login field being on screen at a point where it should not be.
+    detect:
+      kind: element_visible
+      target:
+        description: the login form appearing mid-flow
+        strategies:
+          - kind: anchored_role
+            role: textbox
+            anchor: Username
+            position: after
+      timeout_ms: 1000
+    recovery:
+      action: restart
+      max_attempts: 1
+
+  - name: APP_ERROR
+    classification: hard_failure
+    message: The application showed its internal error page.
+    # Listed after SESSION_EXPIRED on purpose. The two render the same page, so
+    # nothing can tell them apart by looking. Preferring the recoverable one and
+    # bounding it means a real outage retries once and is then reported as the hard
+    # failure it always was.
+    detect:
+      kind: text_visible
+      text: An internal error has occurred
+      timeout_ms: 1000
+
+  - name: LOAN_DENIED
+    classification: business_outcome
+    message: The bank declined the loan request.
+    # The bank considered the application and said no. That is an answer the caller
+    # asked for, not a failure to report - exit 2, not exit 1.
+    #
+    # Detected on the status field, not on the message. The application has four
+    # different refusal wordings depending on which of funds and down payment fell
+    # short, and matching one of them would work until the day it picked another.
+    # The status is one word either way: Approved, or Denied.
+    #
+    detect:
+      kind: text_visible
+      text: Denied
+      match: exact
+      timeout_ms: 1000
+    # Why, in the application's own words, read at the moment the refusal is seen.
+    # There are four possible wordings and this reports whichever one came back,
+    # which is the point: we are quoting the bank, not paraphrasing it.
+    explain:
+      description: the application's stated reason for refusing
+      strategies:
+        - kind: field_id
+          id: loanRequestDenied
+        - kind: anchored_role
+          role: text
+          anchor: Denied
+          position: after
+
+  - name: PERMISSION_DENIED
+    classification: hard_failure
+    message: The signed-in user is not permitted to perform this operation.
+    # Not a business outcome. A business outcome is the application answering the
+    # caller's question; this says the caller was never allowed to ask. No argument
+    # they change will help, so retrying is pointless and a person has to fix an
+    # entitlement. Naming it separates "your request was refused" from "we are
+    # misconfigured", which land on different desks.
+    detect:
+      kind: text_visible
+      text: not authorized
+      match: contains
+      timeout_ms: 1000
+
+  - name: VALIDATION_ERROR
+    classification: business_outcome
+    message: The application rejected a value the caller supplied.
+    # A business outcome, not a hard failure. The application read the argument and
+    # answered; nothing is broken and no person is needed. The caller passes a
+    # different value and it works. That makes it exit 2, the same class as asking
+    # for an account this customer does not own.
+    #
+    # Detected on the malformed-value wording because that is the only validation
+    # error these flows can actually reach: a capability fills every required field
+    # from a parameter, and takes the account number and its confirmation from the
+    # same one, so "required" and "does not match" cannot happen. A capability that
+    # left a field unset would need a wider detector.
+    detect:
+      kind: text_visible
+      text: Please enter a valid
+      match: contains
+      timeout_ms: 1000
+    # Which field, in the application's own words.
+    explain:
+      description: the field-level validation message
+      strategies:
+        - kind: field_id
+          id: validationModel-amount-invalid
+        - kind: anchored_role
+          role: text
+          anchor: 'Amount: $'
+          position: after
+
+  - name: INTERSTITIAL
+    classification: recoverable
+    message: A notice was covering the page and was dismissed.
+    # A banner over an intact page. The flow underneath has not moved, so the fix is to
+    # clear the panel and retry the step, not to start over.
+    detect:
+      kind: text_visible
+      text: Scheduled maintenance
+      match: contains
+      timeout_ms: 1000
+    recovery:
+      action: dismiss
+      max_attempts: 2
+      target:
+        description: the button that closes the notice
+        strategies:
+          - kind: role_name
+            role: button
+            name: Continue to account

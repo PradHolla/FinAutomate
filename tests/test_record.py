@@ -22,7 +22,7 @@ from finautomate.artifact import (
 from finautomate.discover import _slug, checkpoint_for, inheritable, render
 from finautomate.locate import resolve
 from finautomate.policy import Policy
-from finautomate.record import build_bundle
+from finautomate.record import build_bundle, match_human_action
 from finautomate.surface.models import Control, Snapshot, TextAnchor
 
 
@@ -750,3 +750,89 @@ def test_a_value_inside_a_longer_word_is_left_alone() -> None:
     out = generalize("Transfer 50 from account 1250", {"amount": "50"})
     assert "1250" in out
     assert out.count("{{amount}}") == 1
+
+
+# -- turning what a person touched back into a control ----------------------
+
+
+def two_named_the_same() -> Snapshot:
+    """The real collision: an application labels the menu item and the submit button
+    the same thing. Found on ParaBank's own open-account page."""
+    return Snapshot(
+        url="/x",
+        title="x",
+        anchors=[TextAnchor(text="Account Services", doc_order=0)],
+        controls=[
+            ctl("n1", "link", 1, name="Open New Account"),
+            ctl("b1", "button", 2, name="Open New Account"),
+        ],
+    )
+
+
+def test_the_tag_separates_a_link_from_a_button() -> None:
+    """The page reports `a "Open New Account"` or `input "Open New Account"`. Without the
+    tag both descriptions are ambiguous and nothing can be recorded; with it, each one
+    names exactly one control."""
+    page = two_named_the_same()
+
+    assert match_human_action('a "Open New Account"', page).ref == "n1"  # type: ignore[union-attr]
+    assert match_human_action('input "Open New Account"', page).ref == "b1"  # type: ignore[union-attr]
+
+
+def test_a_label_on_two_controls_of_the_same_kind_is_refused() -> None:
+    """The tag narrows; it does not guess. Two buttons with one name stays ambiguous."""
+    page = Snapshot(
+        url="/x",
+        title="x",
+        anchors=[TextAnchor(text="Pick", doc_order=0)],
+        controls=[ctl("b1", "button", 1, name="Continue"), ctl("b2", "button", 2, name="Continue")],
+    )
+
+    assert match_human_action('input "Continue"', page) is None
+
+
+def test_a_control_is_found_by_its_form_name_too() -> None:
+    """A select has no accessible name in this application, so the page describes it by
+    its form field name."""
+    page = Snapshot(
+        url="/x",
+        title="x",
+        anchors=[TextAnchor(text="Type", doc_order=0)],
+        controls=[ctl("s1", "combobox", 1, field_name="type", options=["CHECKING", "SAVINGS"])],
+    )
+
+    assert match_human_action('select "type"', page).ref == "s1"  # type: ignore[union-attr]
+
+
+# -- a rule that means the button and not the menu item ---------------------
+
+
+def test_a_rule_can_name_the_kind_of_control_it_means() -> None:
+    """The target app labels the menu link and the submit button identically. A rule
+    written for the button used to deny the link as well, stopping the agent before it
+    reached the form and asking a person to approve a navigation."""
+    policy = Policy(
+        allowed_path_prefix="/parabank/",
+        denied_control_names=("button:Open New Account",),
+    )
+
+    assert policy.decide("click", "Open New Account", "link").verdict == "allow"
+    assert policy.decide("click", "Open New Account", "button").verdict == "deny"
+
+
+def test_an_unqualified_rule_still_matches_any_control() -> None:
+    """Log Out is a link in this app and a button in others, and the rule means both."""
+    policy = Policy(allowed_path_prefix="/parabank/", denied_control_names=("Log Out",))
+
+    assert policy.decide("click", "Log Out", "link").verdict == "deny"
+    assert policy.decide("click", "Log Out", "button").verdict == "deny"
+
+
+def test_a_link_is_never_the_last_editable_moment() -> None:
+    """The warning before the point of no return fires once. Spent on a menu link that
+    happens to share the button's label, it never reaches the button - and the model
+    submits a form with fields still on defaults that were never recorded."""
+    policy = Policy(allowed_path_prefix="/parabank/", risky_control_names=("Open New Account",))
+
+    assert not policy.commits("Open New Account", "link")
+    assert policy.commits("Open New Account", "button")

@@ -1,7 +1,10 @@
 """Command line entry point."""
 
+import contextlib
 import threading
+import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -25,12 +28,13 @@ from finautomate.checkpoint import wait_for
 from finautomate.discover import DEFAULT_MODEL, MODELS, Discovery
 from finautomate.evidence import Evidence
 from finautomate.faultproxy import load_faults, serve
+from finautomate.handover import start_watching
 from finautomate.locate import explain
 from finautomate.locate import resolve as resolve_locator
 from finautomate.policy import Guards, Policy
 from finautomate.replay import ParameterError, Replay, dry_run, with_runtime_outcomes
 from finautomate.result import EXIT_CODES
-from finautomate.session import InterventionStore, Status
+from finautomate.session import Intervention, InterventionStore, Status
 from finautomate.surface.browser import BrowserSurface
 
 app = typer.Typer(
@@ -74,6 +78,13 @@ def discover(
             readable=True,
         ),
     ] = None,
+    wait_for_human: Annotated[
+        int,
+        typer.Option(
+            help="Seconds to hold the session open for a person if the model gets stuck. "
+            "0 means end the run instead.",
+        ),
+    ] = 0,
     headed: Annotated[bool, typer.Option(help="Show the browser.")] = False,
 ) -> None:
     """Drive a live UI with an LLM until a goal is met, then save a capability."""
@@ -92,8 +103,9 @@ def discover(
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=not headed)
         try:
+            page = browser.new_page()
             run = Discovery(
-                surface=BrowserSurface(browser.new_page(), settings["base_url"]),
+                surface=BrowserSurface(page, settings["base_url"]),
                 client=Anthropic(),
                 policy=policy,
                 guards=guards,
@@ -102,6 +114,11 @@ def discover(
                 secrets=secrets,
                 model=model,
                 inherit=prior,
+                handover=LiveHandover(
+                    page, evidence, InterventionStore(), wait_for_human, goal, typer.echo
+                )
+                if wait_for_human
+                else None,
             )
             capability = run.run(goal, entry, settings.get("app", "parabank"))
         finally:
@@ -135,6 +152,93 @@ def discover(
     typer.secho(f"recorded {len(capability.steps)} steps to {path}", fg=typer.colors.GREEN)
     if warning:
         typer.secho(warning, fg=typer.colors.YELLOW)
+
+
+class LiveHandover:
+    """Brings a person to a stuck discovery run and waits for them.
+
+    The page stays open and on the same screen throughout, which is the whole point:
+    the person gets the session the automation was using, not a fresh one.
+    """
+
+    def __init__(
+        self,
+        page: Any,
+        evidence: Evidence,
+        store: InterventionStore,
+        seconds: int,
+        goal: str,
+        announce: Callable[[str], None],
+    ) -> None:
+        self._page, self._evidence, self._store = page, evidence, store
+        self._seconds, self._goal, self._announce = seconds, goal, announce
+        self._seen: list[dict[str, Any]] = []
+
+    def request(self, step: str, reason: str, screen: list[str]) -> str:
+        shot = self._evidence.screenshot(self._page, f"stuck-{step.replace(' ', '-')}")
+        written = self._store.write(
+            Intervention(
+                id=self._evidence.run_id,
+                run=self._evidence.run_id,
+                step=step,
+                reason=f"Recording {self._goal!r} stopped at {step}: {reason}",
+                screenshot=str(shot),
+                screen=screen,
+            )
+        )
+        self._announce(
+            f"\n{'=' * 74}\nSTUCK - WAITING FOR A PERSON\n{'=' * 74}\n{reason}\n"
+            f"\n  screenshot : {shot}"
+            f"\n  request    : {written}"
+            f"\n  waiting    : up to {self._seconds}s. The browser stays open.\n"
+            "\nDo the step yourself in the browser, then in another terminal:\n"
+            f"\n  uv run finautomate resolve {self._evidence.run_id} --handled"
+            "           # record it, safe to automate"
+            f"\n  uv run finautomate resolve {self._evidence.run_id} --handled --risky"
+            "   # record it, a person must do this every time"
+            f"\n  uv run finautomate resolve {self._evidence.run_id} --reject"
+            "            # stop, record nothing\n"
+        )
+        # Cleared per request, which is what keeps two things out of the record: what a
+        # previous handover captured, and what the automation itself did after control
+        # came back. The listeners stay attached the whole run and cannot be unhooked
+        # cleanly across navigations, so the discipline lives here instead.
+        self._seen.clear()
+        start_watching(self._page, self._seen)
+        return self._evidence.run_id
+
+    def wait(self, intervention_id: str) -> Intervention | None:
+        deadline = time.monotonic() + self._seconds
+        while time.monotonic() < deadline:
+            # Touch the page every time round. Playwright's sync client only delivers a
+            # binding callback while it is pumping its own message loop, and it pumps
+            # when you talk to the page. A loop that only sleeps and reads a file leaves
+            # everything the person does queued and undelivered - which is exactly what
+            # happened, twice, before this line existed.
+            self._poke()
+            current = self._store.read(intervention_id)
+            if not current.open:
+                theirs = list(self._seen)
+                if theirs:
+                    self._store.record_actions(intervention_id, theirs)
+                settled = self._store.read(intervention_id)
+                (self._evidence.dir / "intervention.json").write_text(
+                    settled.model_dump_json(indent=2), encoding="utf-8"
+                )
+                self._announce(f"  control returned by {settled.operator}: {settled.status}")
+                return settled
+            time.sleep(1.0)
+        self._announce("  nobody responded; the run is ending without a capability")
+        return None
+
+    def _poke(self) -> None:
+        """Give the client a reason to deliver what the page has been reporting.
+
+        Suppressed broadly on purpose: the page being gone means the operator closed
+        the window, and the wait below already handles nobody coming back.
+        """
+        with contextlib.suppress(Exception):
+            self._page.title()
 
 
 def _artifact_path(out: Path, capability: Capability) -> Path:
@@ -396,6 +500,14 @@ def resolve(
         bool, typer.Option("--handled", help="You did it yourself; skip the step and continue.")
     ] = False,
     reject: Annotated[bool, typer.Option("--reject", help="Do not proceed.")] = False,
+    risky: Annotated[
+        bool,
+        typer.Option(
+            "--risky",
+            help="What you just did is irreversible. Recorded as a step a person must be "
+            "present for on every replay. Discovery handovers only.",
+        ),
+    ] = False,
     operator: Annotated[str, typer.Option(help="Who decided.")] = "operator",
     note: Annotated[str, typer.Option(help="Why.")] = "",
 ) -> None:
@@ -419,6 +531,7 @@ def resolve(
             chosen[0],
             operator=operator,
             note=note or None,
+            risky=risky,
         )
     except (FileNotFoundError, ValueError) as err:
         typer.secho(str(err), fg=typer.colors.RED)

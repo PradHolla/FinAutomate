@@ -11,13 +11,14 @@ import textwrap
 import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 from anthropic import Anthropic
 from anthropic.types import MessageParam, ToolParam, ToolUseBlock
 from playwright.sync_api import Error as PlaywrightError
 
 from finautomate.artifact import (
+    Action,
     Capability,
     Checkpoint,
     ElementVisible,
@@ -37,7 +38,8 @@ from finautomate.artifact import (
 )
 from finautomate.evidence import Evidence
 from finautomate.policy import Decision, Guards, Policy
-from finautomate.record import build_bundle
+from finautomate.record import build_bundle, match_human_action
+from finautomate.session import HumanAction, Intervention
 from finautomate.surface.browser import ControlNotFoundError, OptionNotFoundError
 from finautomate.surface.models import Control, Snapshot, Surface
 
@@ -113,7 +115,9 @@ Rules:
 - If the goal asks for something you cannot get from these screens, call `stuck` and
   say why. Do not call `done` on a goal you did not achieve: `done` records a reusable
   capability, and one that quietly returns nothing is worse than an honest failure.
-- Call `stuck` rather than guessing if you cannot make progress."""
+- Call `stuck` rather than guessing if you cannot make progress.
+- If policy refuses an action the goal needs, say so with `stuck`. Do not work around it.
+  A person may be able to do it and will be asked."""
 
 
 def _tools() -> list[ToolParam]:
@@ -375,6 +379,23 @@ def _slug(text: str, action: str) -> str:
     return f"{action}_{'_'.join(kept) or action}".strip("_")
 
 
+class Handover(Protocol):
+    """How a discovery run brings a person in and gets the session back.
+
+    A separate object rather than four constructor arguments, and a protocol rather
+    than the browser, so `Discovery` still takes only the `Surface` seam and the tests
+    can drive the whole loop with no browser and no operator.
+    """
+
+    def request(self, step: str, reason: str, screen: list[str]) -> str:
+        """Raise an intervention and return its id."""
+        ...
+
+    def wait(self, intervention_id: str) -> Intervention | None:
+        """Block until a person decides. None means nobody did."""
+        ...
+
+
 def inheritable(prior: Capability, supplied: Iterable[str]) -> tuple[list[str], list[str]]:
     """Names a re-record should reuse: the prior contract, minus what the caller
     already passes in. Parameters first, then returned values.
@@ -419,6 +440,7 @@ class Discovery:
         secrets: dict[str, str],
         model: str = DEFAULT_MODEL,
         inherit: Capability | None = None,
+        handover: Handover | None = None,
     ) -> None:
         self.surface = surface
         self.client = client
@@ -432,6 +454,12 @@ class Discovery:
         """A prior recording whose id and names this run continues. Identity and
         names only: every locator, checkpoint and step is discovered again, which is
         the entire reason to re-record."""
+        self.handover = handover
+        """Present only when the caller is willing to wait for a person. Without it a
+        stuck run ends, which is what it did before this existed."""
+        self.unmatched: list[str] = []
+        """Things a person did that could not be turned into a step. Any entry here means
+        the recording has a hole and no capability is written."""
         self.steps: list[Step] = []
         self.outputs: list[Output] = []
         self.used_ids: set[str] = set()
@@ -511,22 +539,28 @@ class Discovery:
                 url=snapshot.url,
             )
 
-            if block.name in ("done", "stuck"):
-                outcome = block.name
+            if block.name == "done":
+                outcome = "done"
                 self._finish(block)
                 break
 
-            # Every tool_use must be answered or the next request is rejected.
-            recorded = len(self.steps)
-            answers = [(block.id, self._perform(block, snapshot, step_number))]
-            answers += [
-                (e.id, "Not run. One action per turn - look at the screen again.")
-                for e in blocks[1:]
-            ]
-            messages.append(_tool_results(answers))
-            if self._worth_waiting_for(recorded):
-                self._record_wait(snapshot)
+            if block.name == "stuck":
+                resumed = self._hand_over(block, snapshot, step_number)
+                if resumed is None:
+                    outcome = "stuck"
+                    self._finish(block)
+                    break
+                messages.append(_tool_results([(block.id, resumed)]))
+                continue
 
+            messages.append(self._take_turn(blocks, snapshot, step_number))
+
+        return self._conclude(outcome, goal, entry, app, messages)
+
+    def _conclude(
+        self, outcome: str, goal: str, entry: str, app: str, messages: list[MessageParam]
+    ) -> Capability | None:
+        """File the run, then decide whether it earned a capability."""
         self.evidence.event(
             "run_finished",
             outcome=outcome,
@@ -537,9 +571,129 @@ class Discovery:
         )
         self.evidence.transcript(messages)
 
+        if self.unmatched:
+            self.complaint = (
+                f"a person acted on {', '.join(self.unmatched)}, and that could not be matched "
+                "to exactly one control on the screen being held. A recording with a step "
+                "missing cannot replay, so nothing was written."
+            )
+            self.evidence.event("human_action_unmatched", targets=self.unmatched)
+            return None
         if outcome != "done" or not self.steps:
             return None
         return self._capability(goal, entry, app)
+
+    def _take_turn(
+        self, blocks: list[ToolUseBlock], snapshot: Snapshot, step_number: int
+    ) -> MessageParam:
+        """Run the action the model chose and answer it.
+
+        Every tool_use must be answered or the next request is rejected, so the extra
+        blocks get a reply too even though only the first one runs.
+        """
+        recorded = len(self.steps)
+        answers = [(blocks[0].id, self._perform(blocks[0], snapshot, step_number))]
+        answers += [
+            (e.id, "Not run. One action per turn - look at the screen again.") for e in blocks[1:]
+        ]
+        if self._worth_waiting_for(recorded):
+            self._record_wait(snapshot)
+        return _tool_results(answers)
+
+    def _hand_over(self, block: ToolUseBlock, snapshot: Snapshot, step_number: int) -> str | None:
+        """Bring a person in for a stuck run. None means carry on without one.
+
+        What they do becomes part of the recording rather than only part of the log,
+        which is the difference between a person unblocking a run and a person teaching
+        it. They also classify their own action: `--risky` means a human has to be
+        present for this step every time it replays.
+        """
+        if self.handover is None:
+            return None
+
+        reason = str(dict(block.input).get("reason", "the model could not proceed"))
+        screen = [f"{c.ref} {c.role} {c.name!r}" for c in snapshot.controls[:40]]
+        request = self.handover.request(f"step {step_number}", reason, screen)
+        self.evidence.event("handed_to_human", intervention=request, step=step_number)
+
+        decided = self.handover.wait(request)
+        if decided is None or decided.status == "rejected":
+            self.evidence.event(
+                "handover_ended", intervention=request, decision=getattr(decided, "status", "none")
+            )
+            return None
+
+        recorded = self._record_human(decided, snapshot)
+        if recorded:
+            # A step needs to say what it produced, or replay does the next thing before
+            # the application has caught up. The model's steps get this from the loop;
+            # a person's did not, so a recorded handover replayed too fast and failed on
+            # the step after it.
+            self._record_wait(snapshot)
+        if not recorded:
+            # They said they did it themselves, and we captured nothing to record. Either
+            # they did nothing, or we missed it; from here those look identical and both
+            # leave the recording with a gap where a step should be.
+            self.unmatched.append(f"whatever was done at {request} (nothing was captured)")
+        self.evidence.event(
+            "control_returned",
+            intervention=request,
+            decision=decided.status,
+            operator=decided.operator,
+            human_actions=len(decided.human_actions),
+            steps_recorded=len(recorded),
+            risky=decided.risky,
+        )
+        did = "; ".join(recorded) if recorded else "nothing this run can repeat"
+        return (
+            f"A person took over and did: {did}. That is now part of the recording, so do "
+            "not repeat it. Look at the screen again and carry on towards the goal."
+        )
+
+    def _record_human(self, decided: Intervention, snapshot: Snapshot) -> list[str]:
+        """Turn what a person did into steps, against the screen we handed them.
+
+        Anything that cannot be matched to exactly one control is refused and noted. The
+        run then writes no capability at all, because a recording missing a step does not
+        fail at replay time in any useful way - it fails halfway through, having already
+        done half the job.
+        """
+        risk: Risk = "risky" if decided.risky else "safe"
+        done: list[str] = []
+        for action in decided.human_actions:
+            control = match_human_action(action.target, snapshot)
+            if control is None:
+                self.unmatched.append(action.target)
+                continue
+            description = control.name or control.field_name or action.target
+            bundle = build_bundle(control, snapshot, description)
+            if bundle is None:
+                self.unmatched.append(action.target)
+                continue
+            step = self._human_step(action, control, bundle, description, risk)
+            if step is None:
+                continue
+            self._add_step(step)
+            done.append(f"{step.action} {description}")
+        return done
+
+    def _human_step(
+        self, action: HumanAction, control: Control, bundle: LocatorBundle, why: str, risk: Risk
+    ) -> Step | None:
+        """One captured action as a step. A click is a click; a change is a select or a
+        type depending on what the control is. Anything else is evidence, not a step."""
+        if action.kind == "click":
+            return Step(id=self._step_id("click", why), action="click", target=bundle, risk=risk)
+        if action.kind != "change":
+            return None
+        verb: Action = "select" if control.options else "type"
+        return Step(
+            id=self._step_id(verb, why),
+            action=verb,
+            target=bundle,
+            value=self._as_reference(action.value),
+            risk=risk,
+        )
 
     def _guard_tripped(self, started: float) -> str | None:
         """A ceiling that does not depend on the model choosing to stop."""
@@ -711,13 +865,13 @@ class Discovery:
             self.evidence.event("stale_ref", step=step_number, ref=control.ref, detail=stale)
             return f"{stale} The screen has changed since you looked. Look again."
 
-        if decision.blocked:
-            return f"REFUSED by policy: {decision.reason}"
-
-        # One pause before the point of no return, while the form is still editable.
-        # A field left on its default is not in the recording, and after this click
-        # there is no way back to set it. Fires once per run.
-        if decision.verdict == "risky" and not self.warned_before_risky:
+        # One pause before the point of no return, while the form is still editable. A
+        # field left on its default is not in the recording, and after this there is no
+        # way back to set it. Fires once per run, and before a denial as well as before
+        # a risky action: a denied commit control means the run is about to stop or ask
+        # for a person, which is just as final.
+        commits = self.policy.commits(control.name or control.text, control.role)
+        if commits and not self.warned_before_risky:
             self.warned_before_risky = True
             self.evidence.event("paused_before_risky", step=step_number)
             return (
@@ -727,6 +881,9 @@ class Discovery:
                 "this again. Fields you have already set are recorded; setting them "
                 "twice only adds a redundant step."
             )
+
+        if decision.blocked:
+            return f"REFUSED by policy: {decision.reason}"
         return None
 
     def _record_and_act(

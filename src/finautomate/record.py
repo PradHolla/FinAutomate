@@ -161,3 +161,51 @@ def _prefix_before_first_digit(text: str) -> str | None:
             return prefix if len(prefix) >= MIN_PREFIX_CHARS else None
         kept.append(word)
     return None
+
+
+# -- recording what a person did --------------------------------------------
+
+_DESCRIBED = re.compile(r'\A(?P<tag>\w+)(?: "(?P<label>.*)")?\Z', re.S)
+
+
+def match_human_action(described: str, snapshot: Snapshot) -> Control | None:
+    """The control a person acted on, given the page's own description of it.
+
+    While a person holds the session the page reports what they touched as
+    `input "Open New Account"` - a tag and a label, not a control. To record that as a
+    replayable step we have to get back to the control it was, in the screen we were
+    holding when we handed over.
+
+    A label is matched against the three things an application can call a control by:
+    its accessible name, its form field name, and its element id. **Exactly one match,
+    or nothing** - the same rule the locator resolver lives by, and for the same reason.
+    Guessing which of two controls a person clicked is how automation quietly records
+    the wrong thing.
+    """
+    found = _DESCRIBED.match(described.strip())
+    if found is None:
+        return None
+    label = (found.group("label") or "").strip()
+    if not label:
+        return None
+
+    roles = _ROLES_FOR_TAG.get(found.group("tag").lower(), frozenset())
+    hits = [
+        c
+        for c in snapshot.controls
+        if label in (c.name.strip(), c.field_name.strip(), c.field_id.strip())
+        and (not roles or c.role in roles)
+    ]
+    return hits[0] if len(hits) == 1 else None
+
+
+_ROLES_FOR_TAG: dict[str, frozenset[str]] = {
+    "a": frozenset({"link"}),
+    "select": frozenset({"combobox"}),
+    "button": frozenset({"button"}),
+    "textarea": frozenset({"textbox"}),
+    # An <input> is several roles depending on its type, so it narrows nothing on its
+    # own - but it does rule out a link, which is the collision that actually happens:
+    # applications label the menu item and the submit button the same thing.
+    "input": frozenset({"button", "textbox", "checkbox", "radio"}),
+}
