@@ -28,6 +28,11 @@ the preferred path and out of scope. This system drives the UI only.
 
 Needs Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
+**Built and tested on macOS, Apple silicon.** Nothing in it is deliberately Mac-specific: uv,
+Playwright and Python 3.14 all run everywhere, and ParaBank publishes a native arm64 image as well
+as x86. But macOS is the only platform it has actually been run on, so that is the one I can
+vouch for.
+
 ```bash
 uv sync
 uv run playwright install chromium
