@@ -1,0 +1,18 @@
+{"at": "2026-09-14T20:01:23.554+00:00", "kind": "replay_started", "capability": "open_new_account_funded_from_account", "version": 1, "attended": true, "parameters": ["account_type", "funding_account", "password", "username"]}
+{"at": "2026-09-14T20:01:23.702+00:00", "kind": "step", "id": "type_text_username", "action": "type", "strategy": "field_name", "tier": 5, "fallback": true}
+{"at": "2026-09-14T20:01:23.734+00:00", "kind": "step", "id": "type_secret_password", "action": "type", "strategy": "field_name", "tier": 5, "fallback": true}
+{"at": "2026-09-14T20:01:23.738+00:00", "kind": "recovering", "outcome": "SESSION_EXPIRED", "at_step": "click_log_in", "attempt": 1}
+{"at": "2026-09-14T20:01:23.799+00:00", "kind": "step", "id": "type_text_username", "action": "type", "strategy": "field_name", "tier": 5, "fallback": true}
+{"at": "2026-09-14T20:01:23.806+00:00", "kind": "step", "id": "type_secret_password", "action": "type", "strategy": "field_name", "tier": 5, "fallback": true}
+{"at": "2026-09-14T20:01:23.809+00:00", "kind": "recovery_exhausted", "outcome": "SESSION_EXPIRED", "attempts": 1}
+{"at": "2026-09-14T20:01:23.809+00:00", "kind": "failure_held", "step": "click_log_in", "expected": "the Log In button", "observed": "could not find 'the Log In button'\n  [0] role_name: no match\n  [1] anchored_role: no match\n  [2] anchored_role: no match\n  [3] anchored_role: no match\n  [4] anchored_role: no match\n  [5] anchored_role: no match\n  [6] anchored_role: no match\n  [7] anchored_role: no match\n  [8] anchored_role: no match\n  [9] anchored_role: no match"}
+{"at": "2026-09-14T20:01:23.888+00:00", "kind": "handed_to_human", "intervention": "replay-120b1dc418", "step": "click_log_in", "file": "interventions/replay-120b1dc418.json"}
+{"at": "2026-09-14T20:01:52.175+00:00", "kind": "human_action", "did": "change", "target": "input \"password\"", "value": "<redacted>"}
+{"at": "2026-09-14T20:01:52.176+00:00", "kind": "human_action", "did": "click", "target": "input \"Sign On\"", "value": ""}
+{"at": "2026-09-14T20:01:52.176+00:00", "kind": "control_returned", "intervention": "replay-120b1dc418", "decision": "handled", "operator": "pnh", "human_actions": 2}
+{"at": "2026-09-14T20:01:52.268+00:00", "kind": "step", "id": "click_open_new_account", "action": "click", "strategy": "anchored_role", "tier": 2, "fallback": true}
+{"at": "2026-09-14T20:01:52.292+00:00", "kind": "step", "id": "select_account_type", "action": "select", "strategy": "anchored_role", "tier": 3, "fallback": true}
+{"at": "2026-09-14T20:01:52.299+00:00", "kind": "step", "id": "select_account_fund", "action": "select", "strategy": "anchored_role", "tier": 2, "fallback": true}
+{"at": "2026-09-14T20:01:52.337+00:00", "kind": "step", "id": "click_open_new_account_2", "action": "click", "strategy": "anchored_role", "tier": 5, "fallback": true}
+{"at": "2026-09-14T20:01:52.618+00:00", "kind": "step", "id": "read_new_account_number", "action": "read", "strategy": "field_id", "tier": 3, "fallback": true}
+{"at": "2026-09-14T20:01:52.621+00:00", "kind": "replay_finished", "outcome": "success", "duration_ms": 29067}
