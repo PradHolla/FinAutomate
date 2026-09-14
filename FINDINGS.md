@@ -2,7 +2,7 @@
 
 Every bug this project found in itself, and what changed. It is kept because the things
 that found them are part of the design: a fault-injection proxy, adversarial discovery
-runs, running the same goals on two models, and breaking our own tests on purpose to see
+runs, running the same goals on two models, and breaking my own tests on purpose to see
 whether they notice.
 
 The sections follow `REPORT.md`, so a claim there can be read about here in more detail.
@@ -28,7 +28,7 @@ left on its default is not in the recording, so the next caller would get their 
 **Re-recording renamed everything and broke every caller.** The report already said the
 answer to page drift was to re-record. But a fresh run named the parameters afresh, so
 anything already calling that capability broke - not because the flow changed, but
-because the model picked a synonym. We had promised something that quietly broke itself.
+because the model picked a synonym. I had promised something that quietly broke itself.
 *Fix:* `--rerecord` hands the model the names the capability already has. Everything else
 is discovered again, which is the whole point. The version moves only if the contract did.
 
@@ -45,7 +45,7 @@ meant to declare, declared it, and the run was refused because no step sets it. 
 running it, not by reading it.
 *Fix:* parameters and returned values are listed separately.
 
-**We waited six seconds for things that could not happen.** After every action the recorder
+**I waited six seconds for things that could not happen.** After every action the recorder
 polls the screen until it changes, up to six seconds, because this app swaps panels after the
 network goes quiet and an immediate snapshot looks unchanged. It did that after *every* turn,
 including ones where nothing had happened: a refused action, and a `read`, which by definition
@@ -55,9 +55,22 @@ its checkpoint attached to the step before, which did not cause it.
 *Fix:* wait only when a step was recorded this turn and that step was not a read. The same run
 went from 38 seconds to 29, and produced a byte-identical artifact.
 
+**Two parameters holding the same value would collapse into one.** The model declares its
+parameters at `done` as name-and-value pairs, and the recorder attaches a name to a step by
+comparing the step's typed value against those. That is what makes the bill payment take an account
+number and its confirmation from one parameter, so the two can never disagree - a good property that
+fell out rather than being designed. The same rule bites the other way: a goal whose zip code and
+funding account were both `12345` would give every step with that value whichever name was declared
+first, and a caller changing one would silently change the other.
+*Not fixed.* It does not occur in the three capabilities here, whose values are all distinct, and I
+found it by explaining the design rather than by hitting it. The fix is to match on the control the
+model was acting on rather than on the value it typed, which the recorder already knows at the time
+and throws away. That is a change to how steps are recorded, and I would rather leave a known hole
+written down than make that change untested this late.
+
 **Prompt caching had never worked.** `cache_control` sat on the system block, which is
 about 1,700 tokens, and Haiku 4.5 will not cache a prefix under 4,096. No error, no
-cache, on every run ever made. We were also caching the fixed part while the conversation
+cache, on every run ever made. I was also caching the fixed part while the conversation
 was the part that grew.
 *Fix:* cache the conversation, with a breakpoint that moves forward. Cache hits are now
 printed, which is why this went unseen for so long.
@@ -95,12 +108,12 @@ a form control does not. The re-record then reproduced the original artifact exa
 seventy-two strategies.
 
 **An element id that was different on the next page load.** The target app stamps a fresh UUID
-on one Bill Pay field every time the page loads, which we found by loading it three times and
+on one Bill Pay field every time the page loads, which I found by loading it three times and
 comparing. Verification cannot catch this: the id resolves perfectly on the snapshot it came
 from, and is gone by the next one. It would have shipped a rung that can never fire, making the
 ladder look deeper than it is - and a step whose only rung was that id would simply die.
 *Fix:* an id shaped like a UUID is never recorded. Narrow on purpose, because that is the
-generator we have actually seen, and the cost of missing another is a dead rung rather than a
+generator I have actually seen, and the cost of missing another is a dead rung rather than a
 broken run.
 
 **A capability was still named after one run's values, in a second way.** The first fix
@@ -130,7 +143,7 @@ checkpoint's fourth rung was "the link after *Status:*". Correct on the approved
 and also present on the refusal screen, where it matched a navigation link. The run
 returned `Home` as a loan account number.
 *Fix:* a declared outcome is checked after every step, whether the checkpoint held or not.
-What the application says outranks what we expected.
+What the application says outranks what I expected.
 
 **A declared `hard_failure` detector was never read.** The artifact could say "if you see
 this, the app has broken" and nothing consulted it.
@@ -144,7 +157,7 @@ path to exit 2, which is the mistake the brief calls the most common one.
 the reason a loan was refused - plain text in a table cell - had no locator at all.
 *Fix:* a visible element with a stable id, holding no controls of its own, is now
 readable. An outcome can say where its reason lives, and replay quotes the application
-instead of paraphrasing it. This app has four refusal wordings; we report whichever came
+instead of paraphrasing it. This app has four refusal wordings; I report whichever came
 back.
 
 **The audit log undercounted the human.** After a handover the log recorded
@@ -156,7 +169,7 @@ that never mentions them.
 
 **The evidence directory was not self-contained.** `intervention.json` is written to the
 operator's inbox, which is a working directory that gets cleared and is not committed. The one
-in our committed evidence was only there because somebody had copied it by hand.
+in my committed evidence was only there because somebody had copied it by hand.
 *Fix:* a settled request is archived into its run's evidence directory, read back from disk so
 the copy carries what the person did.
 
@@ -175,6 +188,13 @@ out, the model was refused the Log Out control by name, then navigated to
 policy forbids.
 *Fix:* config denies paths as well as control names.
 
+**An intervention kind nothing produced.** The request a stuck replay writes carried
+`kind: "risky_step" | "unrecoverable"`, and nothing ever set the second one. Same shape as the
+`recoverable` outcome with no recovery block above: a promise in the schema the code did not keep,
+and it needed a `type: ignore` at the one call site to pass through.
+*Fix:* narrowed to the one value that exists, which also removed the type ignore. There is one
+reason a run needs a person today, and the schema now says so.
+
 **Page text was never marked as untrusted.** Screen content goes into the prompt, and in a
 back-office app some of it was typed by a customer.
 *Fix:* the screen is fenced and the prompt says it is data, never instructions. The
@@ -182,7 +202,7 @@ allowlist remains the actual control, because a prompt is not a security boundar
 
 ---
 
-## What we found by attacking it
+## What I found by attacking it
 
 Four discovery runs against the live agent loop, each given a goal designed to break something.
 All four are in `evidence/`, and none produced an artifact.
@@ -242,7 +262,7 @@ covered only by real runs against a real model, because it appeared to need both
 model turns. Writing them found that discovery had been typed against the browser driver
 while only ever using the six methods of the `Surface` protocol, so it now takes the
 protocol. The fake screen is a second implementation of that seam, which is the clearest
-evidence we have that nothing above it has quietly reached for a browser.
+evidence I have that nothing above it has quietly reached for a browser.
 
 **Tests that could not fail.** Three tests were written for one function; two passed
 against a stub that ignored its arguments. Both used a fixture that already contained the
@@ -259,29 +279,38 @@ the write-up.
 
 ---
 
-## What we left out, and why
+## What I left out, and why
 
 The cuts listed in section 7 of `REPORT.md`, with the reasoning.
 
 **No sense of what is inside what.** A snapshot is flat, in reading order, and real back-office
-screens are tables. Containment would let a locator say "the row for account 12345". We cut it
+screens are tables. Containment would let a locator say "the row for account 12345". I cut it
 early because a flat snapshot genuinely does not carry that information, and faking it would look
 like scoping without being scoping. It costs three things: a locator cannot carry a caller's
 parameter, so "click the row they named" cannot be expressed; nearest-neighbour anchoring reaches
 only the first and last control of a role, so one menu link records with fewer rungs than it
 should; and `navigate` can only reach the entry point, so parameterized routes are not built. An
-ordinal rung would rescue some of it. We left it out because inserting one menu item shifts every
+ordinal rung would rescue some of it. I left it out because inserting one menu item shifts every
 ordinal below it silently, and a hard failure that names the step beats quietly clicking the wrong
 entry.
+
+**Overrides for a tenant whose flow genuinely differs.** The locator ladder absorbs wording, not a
+different sequence of screens, and at hundreds of tenants some will differ. The answer is a sparse
+patch keyed by step id, merged where tenant outcomes are merged today, able to replace a step's
+locator, checkpoint or risk. It may **not** add, remove or reorder steps: that is a different flow,
+and calling it an override grows patches into second recordings nobody can review. That line is the
+whole value of the mechanism, which is why step ids are stable and meaningful rather than
+positional. Designed, not built - I had no second tenant that actually needed it, and building the
+mechanism against an imagined one is how you get the wrong mechanism.
 
 **No desktop driver.** The `Surface` protocol has two implementations, the Playwright driver and
 the scripted one the agent-loop tests run against. That is evidence the seam is real, not evidence
 a Windows UI Automation driver would work. Building one needs Windows and a real desktop app, and
 the brief asks us to design for the real environment rather than build it.
 
-**No approval state, so no learning from a demonstration.** We capture what a person does during a
+**No approval state, so no learning from a demonstration.** I capture what a person does during a
 handover, and turning that into a capability is a short step from machinery that already exists.
-We stopped on purpose. Someone demonstrating a flow was authorized in that moment; replaying it
+I stopped on purpose. Someone demonstrating a flow was authorized in that moment; replaying it
 later, unattended, is an authorization nobody gave. That needs a draft-to-approved gate first, and
 a gate nobody has designed is worse than no feature.
 

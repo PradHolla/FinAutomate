@@ -13,6 +13,7 @@ __pycache__/
 # openly about the grading rubric - not something to hand the graders.
 CLAUDE.md
 project.md
+PROBLEMS.md
 .claude/
 notes/
 
@@ -36,3 +37,9 @@ evidence/**/tmp/
 # Operator inbox. Runtime state, not a deliverable - one curated example is
 # committed under evidence/ instead.
 interventions/
+
+# Running `discover` on a goal that already has a capability writes the new recording
+# beside the old one rather than replacing it. That is the point of the guard. The
+# file is a working copy for whoever ran it to compare against, so it stays out of
+# the repo and out of their `git status`.
+artifacts/*.new.yaml

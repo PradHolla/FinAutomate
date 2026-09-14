@@ -1,5 +1,9 @@
 # finautomate
 
+*Developed with Claude Code, on Opus 5 and Sonnet 5, with subagents for implementation grunt work
+and verification. The model this system itself drives is a separate choice: Haiku 4.5, Sonnet 5 and only
+while recording.*
+
 Computer-use automation for legacy back-office applications that have no API.
 
 An LLM drives the real UI once to work out how to do a job. What it learned is saved as a
@@ -16,7 +20,7 @@ finish on its own.
 
 ## A note on scope
 
-ParaBank, the target app, also exposes SOAP and REST services. We ignore them on purpose.
+ParaBank, the target app, also exposes SOAP and REST services. I ignore them on purpose.
 The assignment is about applications that have no API at all, and says API integration is
 the preferred path and out of scope. This system drives the UI only.
 
@@ -74,7 +78,7 @@ worth decoding them once:
 ```
 
 A step does not record one selector. It records an **ordered list of ways to find its
-control**, best first. We call that the ladder, and each entry a rung. Replay tries them in
+control**, best first. I call that the ladder, and each entry a rung. Replay tries them in
 order and uses the first that matches *exactly one* control on screen.
 
 * `[0]` is the rung that worked. `[0]` is the first choice.
@@ -86,65 +90,123 @@ order and uses the first that matches *exactly one* control on screen.
 
 ## The demo path
 
-Three commands: reset the app, record a capability, replay it.
+Every capability here follows the same three steps, and this is the first of three times you will
+see them:
+
+**record it once → ask what it takes → run it, as often as you like.**
+
+### 1. Record it
 
 ```bash
-# 1. put the demo data back
 uv run finautomate reset
 
-# 2. let the model work out how to do the job, once
 uv run finautomate discover \
   "Open a new SAVINGS account funded from account 12345, and return the new account number" \
   --param username=john --secret password=demo
-
-# 3. run it again from the recording, with no model involved
-uv run finautomate reset
-uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml \
-  --param username=john \
-  --param account_type=SAVINGS \
-  --param funding_account=12345 \
-  --secret password=demo \
-  --attended
 ```
 
-**Only credentials are passed in.** The model reads `SAVINGS` and `12345` out of the goal,
-decides which of the values it entered a caller should be able to change, and names them
-itself. Look at `inputs:` in the artifact to see the contract it designed. The names are its
-choice, so read them off the file rather than assuming them.
+Only credentials go in. The model reads `SAVINGS` and `12345` out of the goal itself, decides which
+of the values it typed a future caller should be able to change, and names them. About two cents,
+and it opens a real account.
 
-**Step 2 will not overwrite the capability we ship.** A capability's filename comes from its
-goal, so a second run of the same goal lands on the same file. Rather than replace a file
-other things may already be calling, it writes `open_new_account_funded_from_account.new.yaml`
-beside it and prints the flag to use if you did mean to replace it. So step 3 above replays
-the committed artifact. To replay what you just recorded, point step 3 at the `.new.yaml`
-file. There is a section on re-recording below.
+### 2. Ask what it takes
 
-Step 2 costs about two cents and opens a real account, so reset between runs. Step 3 costs
-nothing.
+**Since the model picks the parameter names, the artifact is the only place those names exist. One
+dry run reads them off.** No browser opens, nothing is touched, and you only need it once per
+recording.
 
-`--attended` means a person is watching, so steps marked irreversible are allowed to run.
-Without it the run stops before the step that opens the account. There is a section on that
-below.
-
-Add `--dry-run` to see what a capability takes and what it would do, without opening a
-browser:
-
+```bash
+uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml --dry-run
 ```
-$ uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml --dry-run
-open_new_account_funded_from_account v1: Open a new {{account_type}} account funded ...
+
+```text
+open_new_account_funded_from_account v1: Open a new {{account_type}} account funded from
+account {{funding_account}}, and return the new account number
+
   takes: username, password*, account_type, funding_account
          * never logged or written to disk
-  type_text_username        type    Username field = {{username}}
-  ...
-  click_open_new_account_2  click   Open New Account button  [RISKY - needs a person]
-  read_new_account_number   read    New account number
+
+  type_text_username         type     the Username field = {{username}}
+  type_secret_password       type     the Password field = {{password}}
+  click_log_in               click    the Log In button
+  click_open_new_account     click    the Open New Account link
+  select_account_type        select   the Account Type dropdown = {{account_type}}
+  select_account_fund        select   the account to fund from dropdown = {{funding_account}}
+  click_open_new_account_2   click    the Open New Account button  [RISKY - needs a person]
+  read_new_account_number    read     the new account number
+
   success: the link that appeared
   returns: new_account_number (from read_new_account_number)
 ```
 
-It works with no parameters at all, which is how you find out what a capability takes. Give
-it parameters and it checks them too, so a typo is caught in a second rather than halfway
-through a real run.
+Top to bottom: the **name and version**, the **parameters it takes** with a star on anything
+secret, **every step in order**, then **how it knows it worked** and **what it hands back**.
+`[RISKY - needs a person]` marks the step an unattended run stops at.
+
+The line that matters for the next step is `takes:`.
+
+### 3. Run it
+
+Those four names, straight off the dry run, become the flags:
+
+```bash
+uv run finautomate reset
+
+uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml \
+  --param username=john \
+  --secret password=demo \
+  --param account_type=SAVINGS \
+  --param funding_account=12345 \
+  --attended
+```
+
+```text
+SUCCESS in 527ms
+  new_account_number = '13566'
+```
+
+No model, no key, and it costs nothing. Run it as many times as you like; the dry run was a
+one-off.
+
+Guess a name instead of reading it and you find out immediately, before a browser opens:
+
+```text
+pay_bill_phone_account_from_account takes no parameter named ['amount']
+```
+
+`--attended` means a person is watching, so the step marked irreversible is allowed to run. Without
+it the run stops there and asks. There is a section on that below.
+
+**Add `--headed` to step 1 to watch it.** Discovery runs headless by default. With the flag a real
+Chromium window opens and you can see the model work: it pauses a second or two between actions
+while it looks at the screen and decides, which is the cost replay removes. Two moments are worth
+catching. It tries to click **Open New Account**, gets refused, goes back to set the dropdowns it
+had left on their defaults, and only then clicks again. And the password field fills in without the
+model ever seeing the value, because it asked for `type_secret` by name.
+
+### If you have no API key
+
+Step 1 is the only one that costs anything or needs a key, and all three capabilities are already
+committed in `artifacts/`. **Skip step 1 and the rest works**, here and in both sections that
+follow.
+
+### Starting from nothing
+
+If you would rather not take my word for any of it, delete both output directories and build them
+back:
+
+```bash
+rm -rf artifacts evidence
+```
+
+Recording all three costs about seven cents in total. The filenames come back the same, because a
+capability's id is built from its goal with the parameters stripped out. **The parameter names may
+not**, which is the whole reason step 2 exists. Recording these three afresh just now renamed two
+of them: the loan's returned value went from `new_loan_account_number` to `loan_account_number`,
+and the bill payment's `amount` became `bill_amount`.
+
+One thing does not come back: `evidence/README.md` is a hand-written index naming specific run ids,
+so it will describe runs that no longer exist.
 
 ## Exit codes
 
@@ -160,42 +222,73 @@ customer" is an answer the caller needs, not a crash to page someone about.
 
 ## A second capability
 
-Both capabilities were recorded the same way: an LLM drove the real UI once and we wrote
-down what worked.
+Same three steps. Record it once:
 
 ```bash
 uv run finautomate reset
+
 uv run finautomate discover \
   "Apply for a loan of 1000 with a down payment of 900 from account 12345, and return the new loan account number" \
   --param username=john --secret password=demo
 ```
 
-Every artifact names the run that produced it:
+A dry run to find out the field names:
 
-```yaml
-recorded:
-  run: discovery-f889b045f3
-  model: claude-haiku-4-5
-  goal: Apply for a loan of 1000 with a down payment of 900 from account 12345...
-  evidence: evidence/discovery-f889b045f3
-  supersedes: discovery-d04cbd4e04
+```bash
+uv run finautomate replay artifacts/apply_for_loan_with_down_payment.yaml --dry-run
 ```
 
-That evidence directory holds the whole run: every action the model chose, every policy
-decision on it, and the nine steps that came out. Including a `paused_before_risky` event,
-where the model reached the irreversible step and the harness made it check its work first.
+```text
+apply_for_loan_with_down_payment v1: Apply for a loan of {{loan_amount}} with a down payment
+of {{down_payment}} from account {{from_account}}, and ...
 
-Replay it, with no model involved:
+  takes: username, password*, loan_amount, down_payment, from_account
+         * never logged or written to disk
+
+  type_text_username            type     Username field = {{username}}
+  type_secret_password          type     Password field = {{password}}
+  click_log_in                  click    Log In button
+  click_request_loan            click    Request Loan link
+  type_text_loan_amount         type     Loan Amount field = {{loan_amount}}
+  type_text_down_payment        type     Down Payment field = {{down_payment}}
+  select_from_account           select   From account dropdown = {{from_account}}
+  click_apply_now               click    Apply Now button  [RISKY - needs a person]
+  read_new_loan_account_number  read     New loan account number
+
+  success: the link that appeared
+  returns: loan_account_number (from read_new_loan_account_number)
+```
+
+Then run it with those names:
 
 ```bash
 uv run finautomate reset
+
 uv run finautomate replay artifacts/apply_for_loan_with_down_payment.yaml \
   --param username=john --secret password=demo \
   --param loan_amount=1000 --param down_payment=900 \
   --param from_account=12345 --attended
 ```
 
-That one is approved and returns the new loan account number.
+```text
+SUCCESS
+  loan_account_number = '13566'
+```
+
+Every artifact names the run that produced it, so you can go from any capability back to the log of
+the discovery that made it:
+
+```yaml
+recorded:
+  run: discovery-5f854c4f74
+  model: claude-haiku-4-5
+  goal: Apply for a loan of 1000 with a down payment of 900 from account 12345...
+  evidence: evidence/discovery-5f854c4f74
+  supersedes: discovery-d64d0fb92c
+```
+
+This one carries a `supersedes` line because it was re-recorded over an earlier version, which is
+covered further down. Both runs are in `evidence/`, so the chain can be followed back.
 
 ### The two kinds of "no"
 
@@ -203,13 +296,14 @@ Ask for more than the customer can cover and the bank refuses:
 
 ```bash
 uv run finautomate reset
+
 uv run finautomate replay artifacts/apply_for_loan_with_down_payment.yaml \
   --param username=john --secret password=demo \
   --param loan_amount=900000 --param down_payment=1 \
   --param from_account=12345 --attended
 ```
 
-```
+```text
 BUSINESS_OUTCOME
   LOAN_DENIED: The bank declined the loan request. We cannot grant a loan in that
   amount with your available funds.
@@ -217,77 +311,122 @@ BUSINESS_OUTCOME
 
 Exit 2, not exit 1. The application considered the request and gave an answer.
 
-The second sentence is the bank's words, not ours. ParaBank has four refusal wordings
-depending on which of funds and down payment fell short, and the run reads whichever one came
-back off the page. Ask instead for a down payment you cannot cover:
+That second sentence is the bank's words, not mine. ParaBank has four refusal wordings depending on
+which of funds and down payment fell short, and the run reads whichever one came back off the page.
+Ask instead for a down payment you cannot cover:
 
 ```bash
-uv run finautomate reset
 uv run finautomate replay artifacts/apply_for_loan_with_down_payment.yaml \
   --param username=john --secret password=demo \
   --param loan_amount=100 --param down_payment=900000 \
   --param from_account=12345 --attended
 ```
 
-```
+```text
   LOAN_DENIED: The bank declined the loan request. You do not have sufficient funds
   for the given down payment.
 ```
 
-This one capability produces **two different** business outcomes, and they are not the same
-thing. Pass `--param from_account=99999`, an account the customer does not own, and you get
-`FROM_ACCOUNT_NOT_AVAILABLE`. That is the caller getting it wrong. The refusals above are the
-bank weighing an application and saying no. Both are answers.
+This one capability produces **two different** business outcomes, and they are not the same thing.
+Pass `--param from_account=99999`, an account the customer does not own, and you get
+`FROM_ACCOUNT_NOT_AVAILABLE`. That is the caller getting it wrong. The refusals above are the bank
+weighing an application and saying no. Both are answers.
 
-To see exit 1, stop the app with `docker stop parabank` and run a replay, or use the injected
-app error described below. Remember `docker start parabank` afterwards.
+To see exit 1, stop the app with `docker stop parabank` and run a replay, or use the injected app
+error described below. Remember `docker start parabank` afterwards.
 
 ## A third capability, and the last kind of "no"
 
-The two capabilities above cover a bank saying no and a caller naming an account they do not
-own. There is a third kind: the application reading a value the caller supplied and saying it
-is not acceptable. ParaBank's Bill Pay screen is where that happens, because it validates each
-field rather than funneling everything into one error page.
+There is a third kind of no: the application reading a value the caller supplied and refusing it.
+ParaBank's Bill Pay screen is where that happens, because it validates each field rather than
+funneling everything into one error page.
+
+Same three steps. Record it once:
 
 ```bash
 uv run finautomate reset
+
 uv run finautomate discover \
   "Pay a bill of 50 to City Power, 1 Main St, Springfield, IL 62701, phone 5551234567, account 54321, from account 12345, and return the amount that was paid" \
   --param username=john --secret password=demo
 ```
 
-Sixteen steps, eleven parameters, all named by the model. Note that it takes the account number
-and its confirmation from the **same** parameter, so the two can never disagree. Replay it:
+A dry run to find out the field names. There are eleven of them this time, so this is the step you
+would least want to guess at:
+
+```bash
+uv run finautomate replay artifacts/pay_bill_phone_account_from_account.yaml --dry-run
+```
+
+```text
+pay_bill_phone_account_from_account v1: Pay a bill of {{bill_amount}} to {{payee_name}},
+{{payee_address}}, {{payee_city}}, {{payee_state}} {{payee_zip}}, ...
+
+  takes: username, password*, bill_amount, payee_name, payee_address, payee_city,
+         payee_state, payee_zip, payee_phone, payee_account, from_account
+         * never logged or written to disk
+
+  type_text_username         type     Username field = {{username}}
+  type_secret_password       type     Password field = {{password}}
+  click_log_in               click    Log In button
+  click_bill_pay             click    Bill Pay link
+  type_text_payee_name       type     Payee Name field = {{payee_name}}
+  type_text_address          type     Address field = {{payee_address}}
+  type_text_city             type     City field = {{payee_city}}
+  type_text_state            type     State field = {{payee_state}}
+  type_text_zip_code         type     Zip Code field = {{payee_zip}}
+  type_text_phone            type     Phone # field = {{payee_phone}}
+  type_text_account          type     Account # field = {{payee_account}}
+  type_text_verify_account   type     Verify Account # field = {{payee_account}}
+  type_text_amount           type     Amount field = {{bill_amount}}
+  select_from_account        select   From account # dropdown = {{from_account}}
+  click_send_payment         click    Send Payment button  [RISKY - needs a person]
+  read_amount_paid           read     Amount paid
+
+  success: the text that appeared
+  returns: amount_paid (from read_amount_paid)
+```
+
+Worth a second look at two lines. `type_text_account` and `type_text_verify_account` both take
+`{{payee_account}}`, so the account number and its confirmation can never disagree. And the amount
+is called `bill_amount`, not `amount` - an earlier recording of this same goal called it `amount`,
+which is exactly why you read the names rather than remember them.
+
+Then run it:
 
 ```bash
 uv run finautomate reset
+
 uv run finautomate replay artifacts/pay_bill_phone_account_from_account.yaml \
   --param username=john --secret password=demo \
   --param payee_name="City Power" --param payee_address="1 Main St" \
   --param payee_city=Springfield --param payee_state=IL --param payee_zip=62701 \
   --param payee_phone=5551234567 --param payee_account=54321 \
-  --param amount=50 --param from_account=12345 --attended
+  --param bill_amount=50 --param from_account=12345 --attended
 ```
 
-```
+```text
 SUCCESS
   amount_paid = '$50.00'
 ```
 
-That value is a table cell, not a form field. Reading it at all is why a `read` can now reach
-text as well as controls.
+That value is a table cell, not a form field. Reading it at all is why a `read` can reach text as
+well as controls.
 
-Now pass `--param amount=abc` instead:
+Now pass `--param bill_amount=abc` instead:
 
-```
+```text
 BUSINESS_OUTCOME
   VALIDATION_ERROR: The application rejected a value the caller supplied.
   Please enter a valid amount.
 ```
 
-Exit 2 again, and the second sentence is the application's. This is a business outcome rather
-than a failure because the application read the argument and answered: nothing is broken, no
-person is needed, and the caller passes a different value and it works.
+Exit 2 again, and the second sentence is the application's. This is a business outcome rather than a
+failure because the application read the argument and answered: nothing is broken, no person is
+needed, and the caller passes a different value and it works.
+
+Those, plus the loan refusal and the fault scenarios further down, are all six runtime conditions
+the assignment lists.
 
 ## What the agent is allowed to do
 
@@ -304,6 +443,10 @@ runs, during discovery and during replay:
 The model's own opinion about risk is recorded as a hint. The config decides.
 
 ## Handing the session to a person
+
+This is a **replay-time** mechanism. Discovery has no equivalent and does not need one: a person
+typed that command, it costs money, and it runs once, so it is attended by definition. It opens a
+real account without asking anybody, which is the point of recording it.
 
 `click_open_new_account_2` opens a real bank account, so the artifact marks it risky and an
 unattended run stops there. That is what `--attended` has been skipping past. Drop it, and add
@@ -336,7 +479,7 @@ uv run finautomate resolve <id> --reject  --operator you --note "not today"
 
 `--approve` and `--handled` are deliberately different. One is the machine acting with
 permission. The other is a person acting instead of the machine. An audit of a bank's systems
-cares which, so we do not collapse them into "continue".
+cares which, so I do not collapse them into "continue".
 
 **Pick the one that matches what you actually did.** If you clicked **Open New Account**
 yourself in the browser, say `--handled`, and the step is skipped. Say `--approve` after
@@ -357,7 +500,7 @@ in the record. Passwords are never recorded, only the fact that a password field
 Without `--wait-for-human`, the run raises the request and exits 3 immediately. That is the
 right behavior for an unattended queue: tell the caller a person is needed rather than block.
 
-`evidence/replay-275b89d0f4/` is a real one, driven by hand. Its `intervention.json` holds the
+`evidence/replay-86ece1cfad/` is a real one, driven by hand. Its `intervention.json` holds the
 whole record: which step, why it stopped, what was on screen, who decided, and the click they
 made while they held the session.
 
@@ -397,14 +540,21 @@ recorded 8 steps to artifacts/open_new_account_funded_from_account.yaml
 ```
 
 Each re-recording names the run it replaced in `recorded.supersedes`, so a version chain can be
-followed back.
+followed back. The loan capability is one: its `recorded:` block above names
+`discovery-d64d0fb92c`, and both that run and the one that replaced it are in `evidence/`. The
+other two are first recordings and have no `supersedes`.
+
+That re-record is also the honest test of this feature. It was handed the existing contract and
+rediscovered every locator from scratch, and came back with the same nine steps, the same parameter
+names and the same returned value. Only the provenance block and one line of the model's own prose
+differ.
 
 Without the flag, an existing capability is never overwritten: the new recording is written
 beside it as `<id>.new.yaml` and the run tells you which flag you wanted.
 
 ## Breaking it on purpose
 
-The app will give us a business outcome and a hard failure whenever we ask. It will not expire
+The app gives a business outcome and a hard failure whenever asked. It will not expire
 a session, and it will not go slow. So the recoverable class of failure had never actually run.
 
 `finautomate proxy` sits between the browser and the app and misbehaves to order. The driver
@@ -487,14 +637,14 @@ there:
   click_log_in                     click    [4] anchored_role  <- fallback
   click_open_new_account           click    [2] anchored_role  <- fallback
   select_account_type              select   [3] anchored_role  <- fallback
-  select_funding_account           select   [1] anchored_role  <- fallback
+  select_account_fund              select   [1] anchored_role  <- fallback
   click_open_new_account_2         click    [5] anchored_role  <- fallback
   read_new_account_number          read     [3] field_id  <- fallback
 
 SUCCESS in 524ms
   new_account_number = '13566'
   drift warning: 8 of 8 steps needed a fallback locator
-  evidence : evidence/replay-40a629e583
+  evidence : evidence/replay-e1dc1ae5fe
 ```
 
 Every step, including the irreversible one, found its control by a rung nobody would have picked
@@ -515,11 +665,11 @@ where the locator ladder runs out, not cases where a checkpoint is brittle.
 | `--param name=value` | | a value to give the run. Repeatable |
 | `--secret name=value` | | a value the model is never shown. Repeatable |
 | `--rerecord PATH` | | re-record an existing capability, keeping its id and names |
-| `--model` | `haiku` | `haiku` or `sonnet`. Not model ids |
-| `--config PATH` | `config/parabank.yaml` | which tenant's policy and base URL to use |
-| `--entry PATH` | `/parabank/index.htm` | page to start from |
-| `--out DIR` | `artifacts` | where to write the capability |
-| `--headed` | off | show the browser |
+| `--model` | `haiku` | `haiku` or `sonnet`, not model ids. Haiku costs about a quarter as much and does this job; Sonnet is there because both capabilities were recorded on both |
+| `--config PATH` | `config/parabank.yaml` | the tenant: base URL, policy, and the application's runtime conditions in that institution's wording |
+| `--entry PATH` | `/parabank/index.htm` | the page the run opens on. Recorded into the artifact, so replay starts in the same place |
+| `--out DIR` | `artifacts` | where to write the capability. Point it elsewhere to record without touching the committed ones |
+| `--headed` | off | show the browser window instead of running it hidden, so you can watch the model drive |
 
 ### `replay` - run a capability, with no model
 
@@ -532,13 +682,13 @@ where the locator ladder runs out, not cases where a checkpoint is brittle.
 | `--dry-run` | off | print the contract and the plan, touch nothing |
 | `--config PATH` | `config/parabank.yaml` | which tenant |
 | `--base-url URL` | from config | override it, to route through the proxy |
-| `--headed` | off | show the browser |
+| `--headed` | off | show the browser window. Needed if you plan to take over the session yourself |
 
 ### `reset` - put ParaBank back to a known state
 
 | Flag | Default | |
 |---|---|---|
-| `--clean` | off | strip the demo data instead of restoring it |
+| `--clean` | off | strip the demo data out rather than restoring it, leaving an empty application. Use plain `reset` to get back to a state the commands here work against |
 | `--config PATH` | `config/parabank.yaml` | which tenant |
 
 ### `proxy` - misbehave in front of the app, on purpose
@@ -553,6 +703,27 @@ where the locator ladder runs out, not cases where a checkpoint is brittle.
 `interventions` lists what is waiting. `resolve <id>` hands control back with exactly one of
 `--approve`, `--handled` or `--reject`, plus optional `--operator who` (default `operator`) and
 `--note why`.
+
+## Where the code is
+
+`REPORT.md` argues the design. This is just where to find it.
+
+| | |
+|---|---|
+| `surface/` | the seam: the `Surface` protocol, the `Snapshot`, and the one driver that exists |
+| `locate.py` | a recorded locator to one control on screen. Pure, no browser |
+| `record.py` | a control just acted on to a locator that finds it again |
+| `artifact.py` | the capability schema and the rules it refuses to break |
+| `discover.py` | the agent loop |
+| `replay.py` | the production path, with no model in it |
+| `policy.py` | what the agent may do, checked before every action |
+| `session.py`, `handover.py` | the lease, and watching a person while they hold it |
+| `evidence.py` | the run log, and the one place redaction happens |
+| `faultproxy.py` | a test instrument. Nothing in the production path imports it |
+
+The three files worth reading first are `artifact.py`, because the schema is the contract
+everything else serves; `locate.py`, because the locator ladder is the idea the whole design rests
+on; and `surface/models.py`, which is the seam a desktop driver would plug into.
 
 ## Development
 
