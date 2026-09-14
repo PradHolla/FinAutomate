@@ -7,15 +7,19 @@
 #
 # Two strings are deliberately left alone, and the reason is worth reading:
 #
-#   "Welcome"     the last rung of the submit button's ladder is "the button after
-#                 the text Welcome". Rename it and that control has nothing left.
-#                 Not a checkpoint problem - the ladder is simply shallow there.
+#   "Welcome"     several ladders fall back to "the control after the text Welcome".
+#                 Renaming it does not break them outright - both clicks have rungs
+#                 below it - but it is the rung most of them actually land on here.
 #   "John Smith"  the customer's own name. A rebrand does not change it, and the
 #                 nav link's last rung anchors to it.
 #
 # Everything else moves, including three strings that used to be frozen because
 # checkpoints were recorded as literal text with no fallback. They are recorded as
 # controls now, so they degrade like every other locator.
+#
+# Nothing here exhausts a ladder: every step still finds its control, just further
+# down. `tenant-b-redesign.yaml` is the same rebrand taken far enough that one does
+# run out, and shows what happens then.
 #
 # The button is renamed through its HTML attribute, and that rule comes first so
 # the broader rename below does not consume it.

@@ -33,7 +33,7 @@ from finautomate.result import (
     StepRecord,
     Success,
 )
-from finautomate.session import Intervention, InterventionStore
+from finautomate.session import Intervention, InterventionKind, InterventionStore
 from finautomate.surface.browser import BrowserSurface, ControlNotFoundError, OptionNotFoundError
 from finautomate.surface.models import Snapshot
 
@@ -112,16 +112,33 @@ def render(template: str, bound: dict[str, str | SecretStr]) -> str:
 
 
 def _waiting_banner(
-    step_id: str, reason: str, request: Intervention, path: Path, seconds: int
+    step_id: str,
+    reason: str,
+    request: Intervention,
+    path: Path,
+    seconds: int,
+    *,
+    can_approve: bool = True,
 ) -> str:
+    """The operator's instructions. Only the verbs that apply to this request.
+
+    `--approve` means "go ahead and do it", which is an answer to a step that has not
+    run yet. A step that already failed cannot be approved into working, so offering
+    it there would only invite a decision we have to refuse.
+    """
     rule = "=" * 74
+    approve = (
+        f"\n  uv run finautomate resolve {request.id} --approve   # let the automation do it"
+        if can_approve
+        else ""
+    )
     return (
         f"\n{rule}\nWAITING FOR A PERSON - held at {step_id}\n{rule}\n{reason}\n"
         f"\n  screenshot : {request.screenshot}"
         f"\n  request    : {path}"
         f"\n  waiting    : up to {seconds}s. The browser stays open.\n"
         "\nIn another terminal, choose one:\n"
-        f"\n  uv run finautomate resolve {request.id} --approve   # let the automation do it"
+        f"{approve}"
         f"\n  uv run finautomate resolve {request.id} --handled   # you did it yourself"
         f"\n  uv run finautomate resolve {request.id} --reject    # do not proceed\n"
     )
@@ -244,20 +261,32 @@ class Replay:
         """Whether the operator performed this step themselves, so we skip it."""
         if not self._skip_next:
             return False
+        self._performed_by_person(step)
+        return True
+
+    def _performed_by_person(self, step: Step) -> None:
+        """Spend the skip flag and file the step as the person's work, not ours.
+
+        The flag has to be spent wherever it is read, because it says nothing about
+        *which* step it belongs to. Left set, it skips the next one too.
+        """
         self._skip_next = False
         self.records.append(
             StepRecord(id=step.id, action=step.action, recovered_from="performed by human")
         )
-        return True
 
-    def _unresolved(self, step: Step, snapshot: Snapshot, found: Resolution) -> Result | Recovery:
+    def _unresolved(
+        self, step: Step, snapshot: Snapshot, found: Resolution
+    ) -> Result | Recovery | None:
         assert step.target is not None
         if (answer := self._classify(step, snapshot)) is not None:
             return answer
-        return self._fail(
-            step.id,
+        declared = self._declared(snapshot)
+        return self._stuck(
+            step,
+            declared,
             expected=step.target.description,
-            observed=self._diagnose(snapshot, explain(step.target, found)),
+            observed=self._observed(declared, explain(step.target, found)),
         )
 
     def _apply(
@@ -333,10 +362,12 @@ class Replay:
 
         if (jump := self._try_recover(step, after)) is not None:
             return jump
-        return self._fail(
-            step.id,
+        declared = self._declared(after)
+        return self._stuck(
+            step,
+            declared,
             expected=f"after this step: {self._describe(step.expect)}",
-            observed=self._diagnose(after, "it never appeared before the timeout"),
+            observed=self._observed(declared, "it never appeared before the timeout"),
         )
 
     def _act(self, step: Step, ref: str, bound: dict[str, str | SecretStr]) -> None:
@@ -352,7 +383,9 @@ class Replay:
                 if output.from_step == step.id:
                     self.outputs[output.name] = value
 
-    def _escalate(self, step: Step, reason: str) -> Result | None:
+    def _escalate(
+        self, step: Step, reason: str, *, kind: InterventionKind = "risky_step"
+    ) -> Result | None:
         """Raise an intervention. A Result stops the run; None means control came back."""
         request = Intervention(
             id=self.evidence.run_id,
@@ -360,6 +393,7 @@ class Replay:
             capability=self.cap.id,
             step=step.id,
             reason=reason,
+            kind=kind,
             screenshot=str(self.evidence.screenshot(self.surface.page, f"held-{step.id}")),
             screen=[f"{c.ref} {c.role} {c.name!r}" for c in self.surface.observe().controls[:40]],
         )
@@ -377,7 +411,17 @@ class Replay:
         self.evidence.event(
             "handed_to_human", intervention=request.id, step=step.id, file=str(path)
         )
-        self._announce(_waiting_banner(step.id, reason, request, path, self.wait_seconds))
+        self._announce(
+            _waiting_banner(
+                step.id,
+                reason,
+                request,
+                path,
+                self.wait_seconds,
+                # A step that already ran and failed cannot be approved into working.
+                can_approve=kind == "risky_step",
+            )
+        )
 
         # The lease is now with the person. Record what they do so the run has no gap
         # in its audit trail.
@@ -560,15 +604,23 @@ class Replay:
         self.evidence.event("recovering", outcome=declared.name, at_step=step.id, attempt=used + 1)
         return declared.recovery
 
-    def _diagnose(self, snapshot: Snapshot, fallback: str) -> str:
-        """Let the artifact name a failure it declared how to spot, if it can.
+    def _declared(self, snapshot: Snapshot) -> Outcome | None:
+        """A hard failure the artifact said how to spot, if it is on screen.
 
-        Names the failure as the application's, not ours.
+        Returned rather than rendered, because whether a failure was declared decides
+        more than its wording: a declared one is terminal by the author's own
+        statement, and does not go to a person.
         """
-        declared = detected(self.cap.outcomes, "hard_failure", snapshot)
+        found = detected(self.cap.outcomes, "hard_failure", snapshot)
+        if found is not None:
+            self.evidence.event("detected", outcome=found.name)
+        return found
+
+    @staticmethod
+    def _observed(declared: Outcome | None, fallback: str) -> str:
+        """Name the failure as the application's, not ours, when we can."""
         if declared is None:
             return fallback
-        self.evidence.event("detected", outcome=declared.name)
         return f"{declared.name}: {declared.message or 'the screen matched this condition'}"
 
     def _explained(self, where: LocatorBundle) -> str:
@@ -596,6 +648,40 @@ class Replay:
             message=message,
             step=step_id,
         )
+
+    def _stuck(
+        self, step: Step, declared: Outcome | None, *, expected: str, observed: str
+    ) -> Result | None:
+        """A step that failed. Ask a person before giving up on the run.
+
+        Two failures do not go to anyone. One the artifact declared, because its author
+        already said this condition is terminal and what it means - handing an operator
+        a refused entitlement wastes them. And any failure at all when nobody asked to
+        be called, which is every run without `--wait-for-human` and keeps those
+        exactly as they were.
+
+        Declared recoveries run first and are exhausted before this is reached, so a
+        person is never called for something the capability knew how to fix.
+        """
+        if declared is not None or self.interventions is None or self.wait_seconds <= 0:
+            return self._fail(step.id, expected=expected, observed=observed)
+
+        reason = f"{step.id} failed and replay cannot get past it. Expected {expected}; {observed}"
+        self.evidence.event("failure_held", step=step.id, expected=expected, observed=observed)
+        if (held := self._escalate(step, reason, kind="failed_step")) is not None:
+            return held
+
+        # `_escalate` sets the skip flag for the step it was called *about*. Here that
+        # is the step we are already inside, so it has to be spent now - left set, it
+        # would silently skip whatever comes next.
+        if not self._skip_next:
+            return self._fail(
+                step_id=step.id,
+                expected=expected,
+                observed=f"{observed} An operator took control but did not complete the step.",
+            )
+        self._performed_by_person(step)
+        return None
 
     def _fail(self, step_id: str, *, expected: str, observed: str) -> HardFailure:
         shot = self.evidence.screenshot(self.surface.page, f"failed-{step_id}")

@@ -379,8 +379,8 @@ def replay(
     wait_for_human: Annotated[
         int,
         typer.Option(
-            help="Seconds to hold the session open for an operator at a risky step. "
-            "0 means raise the request and exit.",
+            help="Seconds to hold the session open for an operator, at a risky step or "
+            "at a step that failed. 0 means do neither and end the run.",
         ),
     ] = 0,
     dry: Annotated[

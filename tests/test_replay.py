@@ -35,7 +35,7 @@ from finautomate.replay import (
     with_runtime_outcomes,
 )
 from finautomate.result import EXIT_CODES, BusinessOutcome, HardFailure, NeedsHuman, Success
-from finautomate.session import Intervention
+from finautomate.session import Intervention, InterventionStore
 from finautomate.surface.browser import BrowserSurface
 from finautomate.surface.models import Control, Snapshot, TextAnchor
 
@@ -605,3 +605,126 @@ def test_the_log_counts_what_the_person_actually_did(tmp_path: Path) -> None:
 
     logged = (tmp_path / "r" / "run.jsonl").read_text(encoding="utf-8")
     assert '"human_actions": 1' in logged
+
+
+# -- asking a person about a failure, instead of only reporting it -----------
+
+
+class FakePage:
+    """Just enough page for a screenshot on failure."""
+
+    def screenshot(self, path: str, **_: object) -> None:
+        Path(path).write_bytes(b"")
+
+
+class FakeSurface:
+    def __init__(self) -> None:
+        self.page = FakePage()
+
+
+def stuck_engine(tmp_path: Path, *, store: bool, seconds: int) -> Replay:
+    capability = Capability(
+        id="signon",
+        version=1,
+        title="t",
+        description="d",
+        target=Target(app="parabank", entry="/parabank/index.htm"),
+        steps=[
+            Step(id="click_log_in", action="navigate"),
+            Step(id="after_it", action="navigate"),
+        ],
+        success=TextVisible(kind="text_visible", text="Welcome"),
+    )
+    return Replay(
+        capability,
+        cast(BrowserSurface, FakeSurface()),
+        Evidence(tmp_path / "evidence", "replay-test", frozenset()),
+        interventions=InterventionStore(tmp_path / "inbox") if store else None,
+        wait_seconds=seconds,
+    )
+
+
+BROKEN = Outcome(
+    name="APP_ERROR",
+    classification="hard_failure",
+    message="The application showed its internal error page.",
+    detect=TextVisible(kind="text_visible", text="An internal error has occurred"),
+)
+
+
+def test_a_failure_the_artifact_declared_does_not_go_to_a_person(tmp_path: Path) -> None:
+    """The author already said this condition is terminal and what it means. Calling
+    an operator to look at a refused entitlement wastes them, and the request would
+    have no action attached to it."""
+    engine = stuck_engine(tmp_path, store=True, seconds=300)
+    answer = engine._stuck(
+        engine.cap.steps[0], BROKEN, expected="the Log In button", observed="APP_ERROR: broken"
+    )
+    assert isinstance(answer, HardFailure)
+    assert list((tmp_path / "inbox").glob("*.json")) == [], "nobody should have been asked"
+
+
+def test_with_nobody_waiting_a_failure_is_reported_exactly_as_before(tmp_path: Path) -> None:
+    """Every run without `--wait-for-human` has to behave the way it always did.
+    Raising a request nobody is watching would turn an exit 1 into a hang."""
+    engine = stuck_engine(tmp_path, store=True, seconds=0)
+    answer = engine._stuck(
+        engine.cap.steps[0], None, expected="the Log In button", observed="could not find it"
+    )
+    assert isinstance(answer, HardFailure)
+    assert list((tmp_path / "inbox").glob("*.json")) == []
+
+
+def test_the_skip_flag_is_spent_on_the_step_it_was_raised_for(tmp_path: Path) -> None:
+    """The bug this catches is silent and one step wide.
+
+    `_escalate` sets the skip flag for the step it was called about. At a risky step
+    that flag is read at the top of the *next* call to `_step`, which is correct there
+    because the step has not run yet. A failure is different: we are already inside the
+    step, so an unspent flag skips whatever comes after it. A person fixes the sign-on
+    and the run silently never fills the form.
+    """
+    engine = stuck_engine(tmp_path, store=True, seconds=300)
+
+    def handled(*_: object, **__: object) -> None:
+        engine._skip_next = True  # what `_escalate` does when the person says --handled
+
+    engine._escalate = handled  # type: ignore[method-assign]
+    answer = engine._stuck(
+        engine.cap.steps[0], None, expected="the Log In button", observed="could not find it"
+    )
+
+    assert answer is None, "the run carries on from the step after this one"
+    assert engine._skip_next is False, "the flag belongs to this step and must be spent here"
+    assert [r.id for r in engine.records] == ["click_log_in"]
+    assert engine.records[0].recovered_from == "performed by human"
+
+
+def test_taking_control_without_finishing_the_step_is_still_a_failure(tmp_path: Path) -> None:
+    """A failed step cannot be approved into working: the action already ran. If an
+    operator hands control back without doing it, the honest answer is the failure we
+    started with, not a step quietly skipped."""
+    engine = stuck_engine(tmp_path, store=True, seconds=300)
+    engine._escalate = lambda *_, **__: None  # type: ignore[assignment,method-assign]
+    answer = engine._stuck(
+        engine.cap.steps[0], None, expected="the Log In button", observed="could not find it"
+    )
+    assert isinstance(answer, HardFailure)
+    assert "did not complete the step" in answer.observed
+    assert engine.records == [], "nothing was performed, so nothing is recorded"
+
+
+def test_a_failed_step_is_not_offered_for_approval() -> None:
+    """`--approve` means "go ahead and do it", which answers a step that has not run.
+    The action behind a failed step already ran. Offering the verb would invite a
+    decision the engine has to refuse, so the banner does not print it."""
+    from finautomate.replay import _waiting_banner
+
+    request = Intervention(id="r1", run="r1", step="click_log_in", reason="x", kind="failed_step")
+    risky = _waiting_banner("click_log_in", "x", request, Path("i.json"), 60, can_approve=True)
+    failed = _waiting_banner("click_log_in", "x", request, Path("i.json"), 60, can_approve=False)
+
+    assert "--approve" in risky
+    assert "--approve" not in failed
+    for verb in ("--handled", "--reject"):
+        assert verb in failed, "a person still has to be able to answer"

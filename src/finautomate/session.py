@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Controller = Literal["agent", "human", "none"]
 Status = Literal["open", "approved", "handled", "rejected"]
+InterventionKind = Literal["risky_step", "failed_step"]
 """`approved` is the machine acting with permission. `handled` is a person acting
 instead of the machine, so the step is skipped. An audit cares which."""
 
@@ -43,13 +44,18 @@ class Intervention(BaseModel):
     the capability is."""
     step: str
     reason: str
-    kind: Literal["risky_step"] = "risky_step"
-    """Why a person was needed. One value, because there is one reason today: a step
-    the recording marked irreversible came up with nobody watching.
+    kind: InterventionKind = "risky_step"
+    """Why a person was needed, and the two reasons differ in what they can be asked.
 
-    It stays as a field rather than being implied, so the record says why it exists
-    rather than leaving a reader to infer it. It was briefly a two-value enum whose
-    second value nothing ever produced, which is a promise the code did not keep."""
+    `risky_step`  the recording marked this step irreversible and nobody is watching.
+                  The step has not run, so an operator can approve it.
+    `failed_step` the step ran and failed in a way the capability did not declare.
+                  There is nothing left to approve, so the only useful answer is that
+                  the person did it themselves, or that they cannot.
+
+    It stays a field rather than being inferred, so the record says why it exists. It
+    was a one-value enum for a while, after an earlier second value that nothing ever
+    produced was removed - a promise the code had not kept."""
 
     controller: Controller = "human"
     status: Status = "open"

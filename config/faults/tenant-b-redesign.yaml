@@ -1,0 +1,78 @@
+# Tenant B again, after their next redesign. Same institution, more of the page
+# moved.
+#
+# The rebrand in `tenant-b.yaml` renames everything the institution owns and the
+# login button still resolves, because its ladder has ten rungs and the last six
+# anchor on homepage copy that rebrand left alone. That is the ladder doing its job.
+#
+# This file renames those six too: the marketing caption, the three panel headings
+# and the copyright line. A fuller rebrand does reach them - they are what the
+# institution's own members read. Nothing here touches an element id or a form field
+# name, so the vendor/institution split is the same one tenant B tests.
+#
+# The result is the login button with nothing left to find it by. Replay stops at
+# `click_log_in` and asks a person, who can see the button on screen even though no
+# recorded strategy can address it. That is the point of the file: not that the
+# ladder is weak, but that it is finite, and what happens when a tenant drifts past
+# the end of it.
+#
+# Every `type` and `select` step in this capability survives untouched, because each
+# has a `field_id` rung and ids belong to the vendor. Only the two clicks can run
+# out - ParaBank's links and submit buttons carry no id at all.
+#
+# Run it against `config/tenant-b.yaml`, which already words its detectors this
+# institution's way, with `--base-url` pointed at this proxy.
+#
+# The button is renamed through its HTML attribute, and that rule comes first so
+# the broader rename below does not consume it.
+
+upstream: http://localhost:8080
+
+rules:
+  - name: Riverbend after the redesign
+    then:
+      replace:
+        # Everything tenant B renames.
+        - find: ParaBank
+          with: Riverbend Credit Union
+        - find: Customer Login
+          with: Member Sign On
+        - find: Username
+          with: User ID
+        - find: Password
+          with: Passcode
+        - find: Log In
+          with: Sign On
+        - find: Account Services
+          with: Everyday Banking
+        - find: What type of Account would you like to open?
+          with: Which product would you like to open?
+        - find: A minimum of $100.00 must be deposited into this account at time of
+            opening. Please choose an existing account to transfer funds into the new
+            account.
+          with: Choose which of your accounts should fund the opening deposit.
+        - find: value="Open New Account"
+          with: value="Open the Account"
+        - find: Open New Account
+          with: Open an Account
+        - find: Account Opened!
+          with: Account Created
+        - find: 'Your new account number:'
+          with: 'Your new account reference:'
+        - find: Congratulations, your account is now open.
+          with: All set - the account is live.
+
+        # The six the login button's ladder falls back to. Renaming these is what
+        # takes it from "resolved on a deep rung" to "not found at all".
+        - find: Experience the difference
+          with: Banking that works for you
+        - find: Solutions
+          with: What we offer
+        - find: ATM Services
+          with: Cash Machines
+        - find: Online Services
+          with: Digital Banking
+        - find: Latest News
+          with: Member Updates
+        - find: Parasoft. All rights reserved.
+          with: Riverbend Credit Union. All rights reserved.
