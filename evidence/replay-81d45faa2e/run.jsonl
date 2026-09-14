@@ -1,0 +1,18 @@
+{"at": "2026-09-14T01:17:35.505+00:00", "kind": "replay_started", "capability": "pay_bill_phone_account_from_account", "version": 1, "attended": true, "parameters": ["bill_amount", "from_account", "password", "payee_account", "payee_address", "payee_city", "payee_name", "payee_phone", "payee_state", "payee_zip", "username"]}
+{"at": "2026-09-14T01:17:35.557+00:00", "kind": "step", "id": "type_text_username", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.579+00:00", "kind": "step", "id": "type_secret_password", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.649+00:00", "kind": "step", "id": "click_log_in", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.709+00:00", "kind": "step", "id": "click_bill_pay", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.729+00:00", "kind": "step", "id": "type_text_payee_name", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.734+00:00", "kind": "step", "id": "type_text_address", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.739+00:00", "kind": "step", "id": "type_text_city", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.743+00:00", "kind": "step", "id": "type_text_state", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.748+00:00", "kind": "step", "id": "type_text_zip_code", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.753+00:00", "kind": "step", "id": "type_text_phone", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.758+00:00", "kind": "step", "id": "type_text_account", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.762+00:00", "kind": "step", "id": "type_text_verify_account", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.766+00:00", "kind": "step", "id": "type_text_amount", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.777+00:00", "kind": "step", "id": "select_from_account", "action": "select", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:35.818+00:00", "kind": "step", "id": "click_send_payment", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:36.085+00:00", "kind": "step", "id": "read_amount_paid", "action": "read", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:17:36.087+00:00", "kind": "replay_finished", "outcome": "success", "duration_ms": 582}

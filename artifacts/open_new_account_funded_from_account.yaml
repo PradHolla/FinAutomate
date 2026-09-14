@@ -34,7 +34,7 @@ steps:
 - id: type_text_username
   action: type
   target:
-    description: Username field
+    description: the Username field
     strategies:
     - kind: anchored_role
       role: textbox
@@ -70,7 +70,7 @@ steps:
 - id: type_secret_password
   action: type
   target:
-    description: Password field
+    description: the Password field
     strategies:
     - kind: anchored_role
       role: textbox
@@ -106,7 +106,7 @@ steps:
 - id: click_log_in
   action: click
   target:
-    description: Log In button
+    description: the Log In button
     strategies:
     - kind: role_name
       role: button
@@ -188,7 +188,7 @@ steps:
 - id: click_open_new_account
   action: click
   target:
-    description: Open New Account link
+    description: the Open New Account link
     strategies:
     - kind: role_name
       role: link
@@ -253,7 +253,7 @@ steps:
 - id: select_account_type
   action: select
   target:
-    description: Account type dropdown
+    description: the Account Type dropdown
     strategies:
     - kind: anchored_role
       role: combobox
@@ -292,10 +292,10 @@ steps:
   risk: safe
   outcomes:
     option_not_found: ACCOUNT_TYPE_NOT_AVAILABLE
-- id: select_funding_account
+- id: select_account_fund
   action: select
   target:
-    description: Funding account dropdown
+    description: the account to fund from dropdown
     strategies:
     - kind: anchored_role
       role: combobox
@@ -322,7 +322,7 @@ steps:
 - id: click_open_new_account_2
   action: click
   target:
-    description: Open New Account button
+    description: the Open New Account button
     strategies:
     - kind: role_name
       role: button
@@ -392,7 +392,7 @@ steps:
 - id: read_new_account_number
   action: read
   target:
-    description: New account number
+    description: the new account number
     strategies:
     - kind: anchored_role
       role: link
@@ -445,9 +445,8 @@ outcomes:
   classification: business_outcome
   message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-13T01:58:50.303308Z'
-  run: discovery-af05e047ef
+  at: '2026-09-14T01:15:23.905223Z'
+  run: discovery-d296f65158
   model: claude-haiku-4-5
   goal: Open a new SAVINGS account funded from account 12345, and return the new account number
-  evidence: evidence/discovery-af05e047ef
-  supersedes: discovery-dda3f3c3c2
+  evidence: evidence/discovery-d296f65158

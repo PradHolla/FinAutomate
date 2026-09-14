@@ -1,0 +1,36 @@
+{"at": "2026-09-14T01:15:43.207+00:00", "kind": "model_action", "step": 1, "tool": "type_text", "input": {"ref": "c8", "description": "Username field", "text": "john"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-14T01:15:43.208+00:00", "kind": "policy", "step": 1, "tool": "type_text", "control": "Username field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-14T01:15:43.233+00:00", "kind": "recorded_step", "id": "type_text_username", "action": "type", "risk": "safe"}
+{"at": "2026-09-14T01:15:44.997+00:00", "kind": "model_action", "step": 2, "tool": "type_secret", "input": {"ref": "c9", "description": "Password field", "parameter": "password"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-14T01:15:44.998+00:00", "kind": "policy", "step": 2, "tool": "type_secret", "control": "Password field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-14T01:15:45.050+00:00", "kind": "recorded_step", "id": "type_secret_password", "action": "type", "risk": "safe"}
+{"at": "2026-09-14T01:15:46.477+00:00", "kind": "model_action", "step": 3, "tool": "click", "input": {"ref": "c10", "description": "Log In button"}, "url": "http://localhost:8080/parabank/index.htm"}
+{"at": "2026-09-14T01:15:46.478+00:00", "kind": "policy", "step": 3, "tool": "click", "control": "Log In button", "verdict": "allow", "reason": ""}
+{"at": "2026-09-14T01:15:46.560+00:00", "kind": "recorded_step", "id": "click_log_in", "action": "click", "risk": "safe"}
+{"at": "2026-09-14T01:15:46.583+00:00", "kind": "recorded_checkpoint", "step": "click_log_in", "wait_for": "the link that appeared"}
+{"at": "2026-09-14T01:15:48.990+00:00", "kind": "model_action", "step": 4, "tool": "click", "input": {"ref": "c14", "description": "Request Loan link"}, "url": "http://localhost:8080/parabank/overview.htm"}
+{"at": "2026-09-14T01:15:48.991+00:00", "kind": "policy", "step": 4, "tool": "click", "control": "Request Loan link", "verdict": "allow", "reason": ""}
+{"at": "2026-09-14T01:15:49.059+00:00", "kind": "recorded_step", "id": "click_request_loan", "action": "click", "risk": "safe"}
+{"at": "2026-09-14T01:15:49.068+00:00", "kind": "recorded_checkpoint", "step": "click_request_loan", "wait_for": "the textbox that appeared"}
+{"at": "2026-09-14T01:15:52.061+00:00", "kind": "model_action", "step": 5, "tool": "type_text", "input": {"ref": "c16", "description": "Loan Amount field", "text": "1000"}, "url": "http://localhost:8080/parabank/requestloan.htm"}
+{"at": "2026-09-14T01:15:52.063+00:00", "kind": "policy", "step": 5, "tool": "type_text", "control": "Loan Amount field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-14T01:15:52.085+00:00", "kind": "recorded_step", "id": "type_text_loan_amount", "action": "type", "risk": "safe"}
+{"at": "2026-09-14T01:15:53.787+00:00", "kind": "model_action", "step": 6, "tool": "type_text", "input": {"ref": "c17", "description": "Down Payment field", "text": "900"}, "url": "http://localhost:8080/parabank/requestloan.htm"}
+{"at": "2026-09-14T01:15:53.788+00:00", "kind": "policy", "step": 6, "tool": "type_text", "control": "Down Payment field", "verdict": "allow", "reason": ""}
+{"at": "2026-09-14T01:15:53.807+00:00", "kind": "recorded_step", "id": "type_text_down_payment", "action": "type", "risk": "safe"}
+{"at": "2026-09-14T01:15:55.646+00:00", "kind": "model_action", "step": 7, "tool": "click", "input": {"ref": "c19", "description": "Apply Now button"}, "url": "http://localhost:8080/parabank/requestloan.htm"}
+{"at": "2026-09-14T01:15:55.647+00:00", "kind": "policy", "step": 7, "tool": "click", "control": "Apply Now button", "verdict": "risky", "reason": "control 'Apply Now' matches risky 'Apply Now'"}
+{"at": "2026-09-14T01:15:55.656+00:00", "kind": "paused_before_risky", "step": 7}
+{"at": "2026-09-14T01:15:58.617+00:00", "kind": "model_action", "step": 8, "tool": "select", "input": {"ref": "c18", "description": "From account dropdown", "label": "12345"}, "url": "http://localhost:8080/parabank/requestloan.htm"}
+{"at": "2026-09-14T01:15:58.618+00:00", "kind": "policy", "step": 8, "tool": "select", "control": "From account dropdown", "verdict": "allow", "reason": ""}
+{"at": "2026-09-14T01:15:58.653+00:00", "kind": "recorded_step", "id": "select_from_account", "action": "select", "risk": "safe"}
+{"at": "2026-09-14T01:16:06.480+00:00", "kind": "model_action", "step": 9, "tool": "click", "input": {"ref": "c19", "description": "Apply Now button"}, "url": "http://localhost:8080/parabank/requestloan.htm"}
+{"at": "2026-09-14T01:16:06.482+00:00", "kind": "policy", "step": 9, "tool": "click", "control": "Apply Now button", "verdict": "risky", "reason": "control 'Apply Now' matches risky 'Apply Now'"}
+{"at": "2026-09-14T01:16:06.503+00:00", "kind": "recorded_step", "id": "click_apply_now", "action": "click", "risk": "risky"}
+{"at": "2026-09-14T01:16:06.721+00:00", "kind": "recorded_checkpoint", "step": "click_apply_now", "wait_for": "the link that appeared"}
+{"at": "2026-09-14T01:16:09.776+00:00", "kind": "model_action", "step": 10, "tool": "read", "input": {"ref": "c19", "description": "New loan account number", "output_name": "loan_account_number"}, "url": "http://localhost:8080/parabank/requestloan.htm"}
+{"at": "2026-09-14T01:16:09.777+00:00", "kind": "policy", "step": 10, "tool": "read", "control": "New loan account number", "verdict": "allow", "reason": ""}
+{"at": "2026-09-14T01:16:09.797+00:00", "kind": "recorded_step", "id": "read_new_loan_account_number", "action": "read", "risk": "safe"}
+{"at": "2026-09-14T01:16:15.406+00:00", "kind": "model_action", "step": 11, "tool": "done", "input": {"summary": "Successfully applied for a loan of $1000 with a $900 down payment from account 12345. The loan was approved and the new loan account number is 13566.", "success_text": "Loan Request Processed", "outputs": ["loan_account_number"], "parameters": [{"name": "loan_amount", "value": "1000"}, {"name": "down_payment", "value": "900"}, {"name": "from_account", "value": "12345"}]}, "url": "http://localhost:8080/parabank/requestloan.htm"}
+{"at": "2026-09-14T01:16:15.407+00:00", "kind": "declared_parameters", "names": ["down_payment", "from_account", "loan_amount"]}
+{"at": "2026-09-14T01:16:15.407+00:00", "kind": "run_finished", "outcome": "done", "steps_recorded": 9, "model_calls": 11, "tokens_in": 9863, "tokens_out": 2177}

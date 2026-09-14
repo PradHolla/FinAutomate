@@ -3,8 +3,9 @@ id: apply_for_loan_with_down_payment
 version: 1
 title: Apply for a loan of {{loan_amount}} with a down payment of {{down_payment}} from account
   {{from_account}}, and ...
-description: Successfully applied for a loan of {{loan_amount}} with a down payment of {{down_payment}}
-  from account {{from_account}}. Loan approved with new account number {{new_loan_account_number}}.
+description: Successfully applied for a loan of ${{loan_amount}} with a down payment of ${{down_payment}}
+  from account {{from_account}}. The loan was approved and the new loan account number is
+  {{loan_account_number}}.
 target:
   app: parabank
   surface: browser
@@ -31,7 +32,7 @@ inputs:
   required: true
   secret: false
 outputs:
-- name: new_loan_account_number
+- name: loan_account_number
   type: string
   from_step: read_new_loan_account_number
 steps:
@@ -496,10 +497,10 @@ outcomes:
   classification: business_outcome
   message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-12T23:38:40.282153Z'
-  run: discovery-f889b045f3
+  at: '2026-09-14T01:49:46.390055Z'
+  run: discovery-5f854c4f74
   model: claude-haiku-4-5
   goal: Apply for a loan of 1000 with a down payment of 900 from account 12345, and return
     the new loan account number
-  evidence: evidence/discovery-f889b045f3
-  supersedes: discovery-d04cbd4e04
+  evidence: evidence/discovery-5f854c4f74
+  supersedes: discovery-d64d0fb92c

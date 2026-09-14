@@ -1,10 +1,9 @@
 schema_version: 1
 id: pay_bill_phone_account_from_account
 version: 1
-title: Pay a bill of {{amount}} to {{payee_name}}, {{payee_address}}, {{payee_city}}, {{payee_state}}
-  {{payee_zip}}, phone ...
-description: Successfully paid a bill of {{amount_paid}} to {{payee_name}} from account {{from_account}}.
-  The bill payment was completed with all specified payee information.
+title: Pay a bill of {{bill_amount}} to {{payee_name}}, {{payee_address}}, {{payee_city}},
+  {{payee_state}} {{payee_zip}}, ...
+description: Successfully paid a bill of {{amount_paid}} to {{payee_name}} from account {{from_account}}
 target:
   app: parabank
   surface: browser
@@ -18,6 +17,10 @@ inputs:
   type: string
   required: true
   secret: true
+- name: bill_amount
+  type: string
+  required: true
+  secret: false
 - name: payee_name
   type: string
   required: true
@@ -43,10 +46,6 @@ inputs:
   required: true
   secret: false
 - name: payee_account
-  type: string
-  required: true
-  secret: false
-- name: amount
   type: string
   required: true
   secret: false
@@ -388,10 +387,10 @@ steps:
   by: label
   risk: safe
   outcomes: {}
-- id: type_text_phone_number
+- id: type_text_phone
   action: type
   target:
-    description: Phone number field
+    description: 'Phone # field'
     strategies:
     - kind: anchored_role
       role: textbox
@@ -409,10 +408,10 @@ steps:
   by: label
   risk: safe
   outcomes: {}
-- id: type_text_account_number
+- id: type_text_account
   action: type
   target:
-    description: Account number field
+    description: 'Account # field'
     strategies:
     - kind: anchored_role
       role: textbox
@@ -430,10 +429,10 @@ steps:
   by: label
   risk: safe
   outcomes: {}
-- id: type_text_verify_account_number
+- id: type_text_verify_account
   action: type
   target:
-    description: Verify Account number field
+    description: 'Verify Account # field'
     strategies:
     - kind: anchored_role
       role: textbox
@@ -478,14 +477,14 @@ steps:
       position: before
     - kind: field_name
       name: amount
-  value: '{{amount}}'
+  value: '{{bill_amount}}'
   by: label
   risk: safe
   outcomes: {}
 - id: select_from_account
   action: select
   target:
-    description: From account dropdown
+    description: 'From account # dropdown'
     strategies:
     - kind: anchored_role
       role: combobox
@@ -678,9 +677,9 @@ outcomes:
   classification: business_outcome
   message: The application did not offer that choice for this customer.
 recorded:
-  at: '2026-09-13T01:37:28.560103Z'
-  run: discovery-a0b1a6f7c3
+  at: '2026-09-14T01:17:18.284486Z'
+  run: discovery-b28506db05
   model: claude-haiku-4-5
   goal: Pay a bill of 50 to City Power, 1 Main St, Springfield, IL 62701, phone 5551234567,
     account 54321, from account 12345, and return the amount that was paid
-  evidence: evidence/discovery-a0b1a6f7c3
+  evidence: evidence/discovery-b28506db05

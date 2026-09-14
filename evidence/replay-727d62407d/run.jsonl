@@ -1,0 +1,9 @@
+{"at": "2026-09-14T01:50:20.949+00:00", "kind": "replay_started", "capability": "apply_for_loan_with_down_payment", "version": 1, "attended": true, "parameters": ["down_payment", "from_account", "loan_amount", "password", "username"]}
+{"at": "2026-09-14T01:50:20.999+00:00", "kind": "step", "id": "type_text_username", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:50:21.021+00:00", "kind": "step", "id": "type_secret_password", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:50:21.087+00:00", "kind": "step", "id": "click_log_in", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:50:21.149+00:00", "kind": "step", "id": "click_request_loan", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:50:21.168+00:00", "kind": "step", "id": "type_text_loan_amount", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:50:21.173+00:00", "kind": "step", "id": "type_text_down_payment", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T01:50:21.183+00:00", "kind": "business_outcome", "outcome": "FROM_ACCOUNT_NOT_AVAILABLE", "step": "select_from_account", "message": "The application did not offer that choice for this customer."}
+{"at": "2026-09-14T01:50:21.183+00:00", "kind": "replay_finished", "outcome": "business_outcome", "duration_ms": 233}
