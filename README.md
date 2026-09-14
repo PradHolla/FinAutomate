@@ -696,8 +696,79 @@ Every step, including the irreversible one, found its control by a rung nobody w
 first. Run the same artifact against `config/parabank.yaml` and every step resolves at rung 0.
 That difference is the whole argument for recording a ladder instead of a selector.
 
-Two strings in the rules file are left un-renamed, and it says which and why. Both are cases
-where the locator ladder runs out, not cases where a checkpoint is brittle.
+Two strings in the rules file are left un-renamed, and it says which and why. Nothing here
+exhausts a ladder: every step still finds its control, just further down.
+
+## When the ladder runs out
+
+A ladder is deep, not infinite. `config/faults/tenant-b-redesign.yaml` is the same institution
+after a fuller rebrand: it renames the marketing caption, the three panel headings and the
+copyright line as well. Those are the last six rungs of the login button's ten, so all ten miss.
+
+This is the third of the three places a person is needed. The first two are above: a risky step
+with nobody watching, and the model stuck while recording. This is a replay hitting something it
+cannot recover from.
+
+```bash
+uv run finautomate proxy --rules config/faults/tenant-b-redesign.yaml --port 8890
+```
+
+In the other terminal, with `--wait-for-human` so somebody is actually asked:
+
+```bash
+uv run finautomate reset
+uv run finautomate replay artifacts/open_new_account_funded_from_account.yaml \
+  --param username=john --secret password=demo \
+  --param account_type=SAVINGS --param funding_account=12345 \
+  --config config/tenant-b.yaml --base-url http://localhost:8890 \
+  --attended --wait-for-human 600 --headed
+```
+
+`--base-url` points the tenant at this proxy without inventing an institution that does not
+exist. `--headed` shows the browser, because a person has to be able to use it.
+
+The run stops at the login button and prints a request. Note which verbs it offers:
+
+```
+WAITING FOR A PERSON - held at click_log_in
+click_log_in failed and replay cannot get past it. Expected the Log In button;
+could not find 'the Log In button'
+  [0] role_name: no match
+  ...
+  [9] anchored_role: no match
+
+In another terminal, choose one:
+
+  uv run finautomate resolve <id> --handled   # you did it yourself
+  uv run finautomate resolve <id> --reject    # do not proceed
+```
+
+No `--approve`. That verb means "go ahead and do it", which answers a step that has not run yet.
+This one ran and failed, so there is nothing left to approve.
+
+Click **Sign On** in the browser, then run the `--handled` line. The run carries on and finishes:
+
+```
+  click_log_in                     click    [None] None
+  click_open_new_account           click    [2] anchored_role  <- fallback
+  ...
+SUCCESS in 29067ms
+  new_account_number = '13566'
+  drift warning: 9 of 10 steps needed a fallback locator
+```
+
+The step the person did shows no locator, because none was used. Everything after it resolves,
+because every `type` and `select` step has a `field_id` rung and ids belong to the vendor. Only
+the two clicks could have run out: ParaBank's links and submit buttons carry no id at all.
+
+Two things this does **not** do. A failure the capability declared - `APP_ERROR`,
+`PERMISSION_DENIED` - goes straight to exit 1 without asking anyone, because the author already
+said that condition is terminal. And declared recoveries run first: in this run the tenant's
+`SESSION_EXPIRED` fires once and restarts before anyone is called, which is why the first two
+steps appear twice in the log. Drop `--wait-for-human` and the run behaves exactly as it always
+did, reporting the failure and exiting 1.
+
+`evidence/replay-120b1dc418/` is this run.
 
 ## Command reference
 

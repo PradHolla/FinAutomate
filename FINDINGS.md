@@ -163,6 +163,12 @@ short to be swapped.
 capability whose account type is a parameter. A name is the first thing anyone believes.
 *Fix:* the title, description and id are generalized before they are written.
 
+**How the recorder keeps itself honest.** A proposed strategy is only written into an artifact
+after the real resolver has been run against the live screen and found exactly one match with it.
+The recorder and replay therefore cannot disagree about what a locator means, because only one of
+them decides. Strategies containing a digit are refused outright: a digit is data, and a ladder
+rung built from it matches the run it came from and nothing else.
+
 ---
 
 ## Replay
@@ -212,6 +218,44 @@ the copy carries what the person did.
 them, and it does not name them the same way twice, so a caller had to read the YAML or
 trigger an error message.
 *Fix:* `--dry-run` prints the contract, and works with no arguments at all.
+
+**A hard failure told somebody, and asked nobody.** The brief names three moments a person is
+needed. A replay hitting something it cannot recover from was the third, and it reported the
+failure and exited 1 - even with an operator sitting there and `--wait-for-human` on the command
+line.
+*Fix:* `_stuck`, a sibling to `_fail`, raises a request first and only falls through to failing
+when nobody answers. `_fail` still means "we are done", which is worth keeping true.
+
+**A hard failure could not tell a declared condition from an unknown one.** `_diagnose` returned
+a *string*, so `APP_ERROR` and "I cannot find this control" arrived at the same place looking the
+same. Once failures could escalate that mattered: calling an operator to look at a refused
+entitlement wastes them, and the request would have no action attached to it.
+*Fix:* it returns the `Outcome` instead and the caller formats it. A declared failure is terminal
+by its author's own statement and goes straight to exit 1.
+
+**The skip flag belonged to no particular step.** `_escalate` sets a flag meaning "the person did
+this one, skip it", and that flag is read at the *top* of the next step. Correct for a risky step,
+which has not run yet. Wrong for a failure, where we are already inside the step: left set, it
+would silently skip whatever came next. A person fixes the sign-on and the run never fills the
+form.
+*Fix:* the flag is spent where it is read. Both places now call one method that does it, because
+the two copies of those three lines were identical.
+
+**A failure request offered a verb that could not work.** The operator's banner listed
+`--approve`, which means "go ahead and do it". A step that already ran and failed cannot be
+approved into working.
+*Fix:* the banner prints only the verbs that apply, and the request records `kind: failed_step`
+rather than calling a failure a risky step. That field had been a one-value enum since an earlier
+second value was removed for never being produced. This one is produced.
+
+**The thing that made this demo possible was a comment I had written and stopped believing.**
+`tenant-b.yaml` said "Welcome" was left un-renamed because it was the last rung of the submit
+button's ladder. It had been, before that capability was re-recorded; by the time I read it there
+were two footer rungs below it. Renaming "Welcome" would have proved nothing. Checking it against
+the artifact instead of the comment is what found the login button, whose bottom six rungs are all
+homepage copy a full rebrand really does change.
+*Fix:* the comment now matches the artifact, and `tenant-b-redesign.yaml` is the file that does
+exhaust a ladder.
 
 ---
 

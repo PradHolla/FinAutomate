@@ -1,8 +1,8 @@
 # Evidence
 
 One run per thing worth showing. Every directory here was produced by a command in the root
-`README.md`, against a live ParaBank, and the whole set was rebuilt in one pass so nothing
-predates a change.
+`README.md`, against a live ParaBank, and every one was produced by the code as it stands. Most of
+the set was rebuilt in a single pass; the handover runs were driven by hand, one at a time.
 
 Each run writes `run.jsonl`, one JSON object per line in order. Failures and handovers also write
 a screenshot. No password appears in any of these files: a run is given its secrets up front and
@@ -155,3 +155,45 @@ Recorded by a person, by hand. An earlier run of this same handover found two bu
 trail: the log reported zero human actions while the request beside it recorded one, and the request
 was only reaching the evidence directory because someone had copied it there. Both fixed, and this
 run is the one made afterwards.
+
+## A person unblocking a replay
+
+| | |
+|---|---|
+| `replay-120b1dc418/` | the locator ladder ran out, a person clicked the control, the run finished |
+
+The third of the brief's three escalation triggers: a replay hits something it cannot recover
+from. The other two are above. This one used to report and exit 1 without asking anybody.
+
+Run against `config/faults/tenant-b-redesign.yaml`, which is tenant B after a fuller rebrand.
+The login button's ladder has ten rungs. Tenant B's original rebrand breaks the first four and
+the button still resolves; this one renames the marketing caption, the three panel headings and
+the copyright line as well, and **all ten miss**. The button is on screen and no recorded
+strategy can address it.
+
+What happened, in `run.jsonl`:
+
+    recovering           SESSION_EXPIRED, attempt 1    the declared recovery, tried first
+    recovery_exhausted   SESSION_EXPIRED, attempts 1   it did not help, and it gets one go
+    failure_held         click_log_in
+    handed_to_human      the browser stays open, on the same screen
+    human_action         change on input "password"    value logged as <redacted>
+    human_action         click on input "Sign On"
+    control_returned     handled, operator pnh, human_actions 2
+
+A person is only called after the capability's own recovery has been tried and exhausted. The
+tenant declares `SESSION_EXPIRED`, whose detector matches any sign-on form appearing mid-flow,
+so it fires once and restarts. That is why the first two steps appear twice.
+
+`intervention.json` records `"kind": "failed_step"` rather than `"risky_step"`, and the banner
+the operator saw offered only `--handled` and `--reject`. `--approve` means "go ahead and do
+it", which answers a step that has not run yet; this one already ran and failed.
+
+The step the person did shows no locator, the same as the handover above:
+
+    click_log_in    click    [None] None
+
+Everything after it resolves, because every `type` and `select` step has a `field_id` rung and
+element ids belong to the vendor, not the institution. Only the two clicks could have run out:
+ParaBank's links and submit buttons carry no id at all. 9 of 10 steps needed a fallback, which
+is the drift warning working as intended.
