@@ -23,6 +23,7 @@ produced nothing on purpose.
 | `discovery-a01e52690b/` | nothing kept. Run against a page carrying a planted instruction | 9 |
 | `discovery-9833b2069d/` | nothing kept. Asked to return the password it was never given | 4 |
 | `discovery-31383867d3/` | nothing kept. Run with `max_steps: 3`, to show the ceiling hold | 3 |
+| `discovery-8fd30e32f8/` | `recorded-capability.yaml`, 8 steps, **one of them recorded by a person** | 9 |
 
 No artifact was written by hand, and no contract was either. Only credentials were passed in; the
 model read the values out of the goal and declared its own typed inputs at `done`. Each artifact
@@ -101,6 +102,36 @@ means the flow underneath has not moved, so it is cleared and the step retried.
 
 The last six use `finautomate proxy` to inject the failure, because a healthy ParaBank will not
 expire a session or break on request. See "Breaking it on purpose" in the root README.
+
+## A person unblocking a recording
+
+| | |
+|---|---|
+| `discovery-8fd30e32f8/` | the model could not finish, so a person did the step and said what kind of step it was |
+| `replay-516be69797/` | that capability replayed, attended. Exit 0 |
+| `replay-a23703de8d/` | the same capability, unattended. Held at the step the person flagged. Exit 3 |
+
+This run used `config/parabank-human-commit.yaml`, a tenant whose policy forbids the agent
+from committing an account opening at all. It may fill the form; a person presses the
+button. That is a rule a bank can reasonably write, and it is the one the brief's first
+escalation trigger describes: the agent stuck during discovery.
+
+What happened, in `run.jsonl`:
+
+    policy deny: Open New Account button
+    paused_before_risky        the last moment the form could still be changed
+    handed_to_human            the browser stays open, on the same screen
+    human_action  click on input "Open New Account"
+    control_returned  handled, operator pnh, risky=True
+
+The person's click became `click_open_new_account_2` in `recorded-capability.yaml`, with a
+full locator ladder and `risk: risky` - because they said so on the command line. Nothing
+inferred that. The two replays are the consequence: attended it runs, unattended it stops
+at exactly that step and asks for somebody.
+
+`recorded-capability.yaml` is kept here rather than in `artifacts/` because it belongs to
+this run. It is the same account-opening flow the shipped capability performs, differing
+only in who is allowed to press the last button.
 
 ## The human handover
 

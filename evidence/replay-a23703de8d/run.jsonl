@@ -1,0 +1,9 @@
+{"at": "2026-09-14T05:11:23.446+00:00", "kind": "replay_started", "capability": "open_new_account_funded_from_account", "version": 1, "attended": false, "parameters": ["account_type", "funding_account", "password", "username"]}
+{"at": "2026-09-14T05:11:23.500+00:00", "kind": "step", "id": "type_text_username", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T05:11:23.529+00:00", "kind": "step", "id": "type_secret_password", "action": "type", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T05:11:23.590+00:00", "kind": "step", "id": "click_log_in", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-14T05:11:23.653+00:00", "kind": "step", "id": "click_open_new_account", "action": "click", "strategy": "role_name", "tier": 0, "fallback": false}
+{"at": "2026-09-14T05:11:23.678+00:00", "kind": "step", "id": "select_account_type", "action": "select", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T05:11:23.684+00:00", "kind": "step", "id": "select_account_fund", "action": "select", "strategy": "anchored_role", "tier": 0, "fallback": false}
+{"at": "2026-09-14T05:11:23.684+00:00", "kind": "risky_step_held", "step": "click_open_new_account_2", "reason": "click_open_new_account_2 is marked irreversible and this run is unattended. It would have: Open New Account."}
+{"at": "2026-09-14T05:11:23.718+00:00", "kind": "replay_finished", "outcome": "needs_human", "duration_ms": 271}
