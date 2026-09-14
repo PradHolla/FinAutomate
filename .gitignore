@@ -9,10 +9,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Internal working docs. Not deliverables, and project.md in particular reasons
-# openly about the grading rubric - not something to hand the graders.
-CLAUDE.md
-project.md
+# Internal working doc. PROBLEMS.md is a running list of gaps found re-reading the
+# brief, written for me rather than for a reader. CLAUDE.md and project.md are in
+# the repo on purpose: they are how the work was actually done.
 PROBLEMS.md
 .claude/
 notes/
