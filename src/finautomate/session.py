@@ -41,7 +41,13 @@ class Intervention(BaseModel):
     capability: str
     step: str
     reason: str
-    kind: Literal["risky_step", "unrecoverable"] = "risky_step"
+    kind: Literal["risky_step"] = "risky_step"
+    """Why a person was needed. One value, because there is one reason today: a step
+    the recording marked irreversible came up with nobody watching.
+
+    It stays as a field rather than being implied, so the record says why it exists
+    rather than leaving a reader to infer it. It was briefly a two-value enum whose
+    second value nothing ever produced, which is a promise the code did not keep."""
 
     controller: Controller = "human"
     status: Status = "open"

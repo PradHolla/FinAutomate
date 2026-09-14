@@ -238,7 +238,7 @@ class Replay:
             f"It would have: {step.target.description if step.target else step.action}."
         )
         self.evidence.event("risky_step_held", step=step.id, reason=reason)
-        return self._escalate(step, reason, kind="risky_step")
+        return self._escalate(step, reason)
 
     def _done_by_person(self, step: Step) -> bool:
         """Whether the operator performed this step themselves, so we skip it."""
@@ -352,7 +352,7 @@ class Replay:
                 if output.from_step == step.id:
                     self.outputs[output.name] = value
 
-    def _escalate(self, step: Step, reason: str, *, kind: str) -> Result | None:
+    def _escalate(self, step: Step, reason: str) -> Result | None:
         """Raise an intervention. A Result stops the run; None means control came back."""
         request = Intervention(
             id=self.evidence.run_id,
@@ -360,7 +360,6 @@ class Replay:
             capability=self.cap.id,
             step=step.id,
             reason=reason,
-            kind=kind,  # type: ignore[arg-type]
             screenshot=str(self.evidence.screenshot(self.surface.page, f"held-{step.id}")),
             screen=[f"{c.ref} {c.role} {c.name!r}" for c in self.surface.observe().controls[:40]],
         )
