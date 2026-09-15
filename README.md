@@ -107,8 +107,11 @@ uv run finautomate reset
 
 uv run finautomate discover \
   "Open a new SAVINGS account funded from account 12345, and return the new account number" \
-  --param username=john --secret password=demo
+  --param username=john --secret password=demo --headed
 ```
+
+`--headed` shows the browser so you can watch the model work. Drop it and the run is headless,
+which is what you want in production and what the tests do.
 
 Only credentials go in. The model reads `SAVINGS` and `12345` out of the goal itself, decides which
 of the values it typed a future caller should be able to change, and names them. About two cents,
@@ -182,12 +185,11 @@ pay_bill_phone_account_from_account takes no parameter named ['amount']
 `--attended` means a person is watching, so the step marked irreversible is allowed to run. Without
 it the run stops there and asks. There is a section on that below.
 
-**Add `--headed` to step 1 to watch it.** Discovery runs headless by default. With the flag a real
-Chromium window opens and you can see the model work: it pauses a second or two between actions
-while it looks at the screen and decides, which is the cost replay removes. Two moments are worth
-catching. It tries to click **Open New Account**, gets refused, goes back to set the dropdowns it
-had left on their defaults, and only then clicks again. And the password field fills in without the
-model ever seeing the value, because it asked for `type_secret` by name.
+**Two moments in step 1 are worth catching**, which is why `--headed` is on it. The model pauses a
+second or two between actions while it looks at the screen and decides, and that pause is the cost
+replay removes. It tries to click **Open New Account**, gets refused, goes back to set the dropdowns
+it had left on their defaults, and only then clicks again. And the password field fills in without
+the model ever seeing the value, because it asked for `type_secret` by name.
 
 ### If you have no API key
 
@@ -234,7 +236,7 @@ uv run finautomate reset
 
 uv run finautomate discover \
   "Apply for a loan of 1000 with a down payment of 900 from account 12345, and return the new loan account number" \
-  --param username=john --secret password=demo
+  --param username=john --secret password=demo --headed
 ```
 
 A dry run to find out the field names:
@@ -353,7 +355,7 @@ uv run finautomate reset
 
 uv run finautomate discover \
   "Pay a bill of 50 to City Power, 1 Main St, Springfield, IL 62701, phone 5551234567, account 54321, from account 12345, and return the amount that was paid" \
-  --param username=john --secret password=demo
+  --param username=john --secret password=demo --headed
 ```
 
 A dry run to find out the field names. There are eleven of them this time, so this is the step you
@@ -566,7 +568,7 @@ flow would hand every caller a new set of names for no reason.
 uv run finautomate reset
 uv run finautomate discover \
   "Open a new SAVINGS account funded from account 12345, and return the new account number" \
-  --param username=john --secret password=demo \
+  --param username=john --secret password=demo --headed \
   --rerecord artifacts/open_new_account_funded_from_account.yaml
 ```
 
